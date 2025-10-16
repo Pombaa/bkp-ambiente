@@ -1,12 +1,21 @@
 #!/bin/bash
 
 ################################################################################
-# Script de Restauração de Dotfiles e Configurações Visuais
+# Script de Restauração de Dotfiles - VERSÃO ESSENCIAL
 # Autor: Criado para restauração de ambiente Arch Linux + bspwm
 # Data: $(date +%Y-%m-%d)
 #
 # ATENÇÃO: Execute este script APÓS instalar os pacotes base do sistema
 # (bspwm, polybar, picom, rofi, etc.)
+#
+# Este script restaura APENAS configurações essenciais:
+# - Window Manager e compositing
+# - Interface visual (polybar, rofi, dunst)
+# - Terminal e shell
+# - Temas GTK e ícones
+# - Utilitários de sistema
+#
+# NÃO restaura dados pessoais de aplicativos (Discord, Chrome, etc.)
 #
 # Este script:
 # 1. Faz backup dos dotfiles atuais (se existirem)
@@ -23,11 +32,14 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Diretório padrão de backups
-BACKUP_DIR="$HOME/bkp-ambiente"
+BACKUP_DIR="$HOME/bkp-ambiente/dots-simplificado"
 
 echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}   Script de Restauração de Configurações${NC}"
+echo -e "${BLUE}   Restauração de Configurações Essenciais${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+echo ""
+echo -e "${GREEN}Este script restaura APENAS configurações do ambiente${NC}"
+echo -e "${GREEN}SEM dados pessoais de aplicativos (Discord, Chrome, etc.)${NC}"
 echo ""
 
 # Função para listar backups disponíveis

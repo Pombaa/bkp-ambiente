@@ -1,15 +1,23 @@
 #!/bin/bash
 
 ################################################################################
-# Script de Backup de Dotfiles e Configurações Visuais
-# Autor: Criado para backup de ambiente Arch Linux + bspwm
+# Script de Backup de Dotfiles - VERSÃO ESSENCIAL
+# Autor: Criado para compartilhar configurações base do ambiente
 # Data: $(date +%Y-%m-%d)
 #
-# ATENÇÃO: Este script foca APENAS em configurações visuais e de usuário.
-# NÃO inclui lista de pacotes do sistema nem arquivos de /etc.
+# FOCO: Configurações essenciais do ambiente (WM, terminal, temas)
+# EXCLUI: Aplicativos pessoais (Discord, Chrome, VSCode, Spotify, etc.)
+#
+# Este backup contém apenas:
+# - Window Manager e compositing (bspwm, sxhkd, picom)
+# - Interface visual (polybar, rofi, dunst)
+# - Terminal (alacritty, kitty, tmux)
+# - Temas GTK e ícones
+# - Shell configs (bash, zsh)
+# - Utilitários de sistema (btop, fastfetch, neofetch)
 #
 # RESTAURAÇÃO (após instalar pacotes base na nova máquina):
-# 1. Extrair o backup: tar -xzf meu_ambiente_backup_YYYY-MM-DD.tar.gz -C ~
+# 1. Extrair o backup: tar -xzf dotfiles_essencial_YYYY-MM-DD.tar.gz -C ~
 # 2. Configurar tema de ícones: papirus-folders -C violet --theme Papirus
 ################################################################################
 
@@ -20,8 +28,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Nome do arquivo de backup com data atual
-BACKUP_NAME="meu_ambiente_backup_$(date +%Y-%m-%d).tar.gz"
-BACKUP_DIR="$HOME/bkp-ambiente"
+BACKUP_NAME="dotfiles_essencial_$(date +%Y-%m-%d).tar.gz"
+BACKUP_DIR="$HOME/bkp-ambiente/dots-simplificado"
 
 # Criar diretório de backup se não existir
 mkdir -p "$BACKUP_DIR"
@@ -35,18 +43,32 @@ echo -e "${BLUE}═════════════════════�
 echo ""
 
 # Array com os itens para backup (caminhos relativos à home)
+# APENAS configurações ESSENCIAIS do ambiente
 ITEMS=(
-    # Configurações de aplicativos visuais
+    # ═══════════════════════════════════════════════════════
+    # WINDOW MANAGER E COMPOSITING
+    # ═══════════════════════════════════════════════════════
     ".config/bspwm"
     ".config/sxhkd"
+    ".config/picom"
+    
+    # ═══════════════════════════════════════════════════════
+    # INTERFACE VISUAL (barra, launcher, notificações)
+    # ═══════════════════════════════════════════════════════
     ".config/polybar"
     ".config/rofi"
-    ".config/picom"
     ".config/dunst"
+    
+    # ═══════════════════════════════════════════════════════
+    # TERMINAIS
+    # ═══════════════════════════════════════════════════════
     ".config/alacritty"
     ".config/kitty"
+    ".tmux.conf"
     
-    # Tema e aparência
+    # ═══════════════════════════════════════════════════════
+    # TEMAS E APARÊNCIA
+    # ═══════════════════════════════════════════════════════
     ".config/gtk-3.0/settings.ini"
     ".config/gtk-4.0"
     ".gtkrc-2.0"
@@ -54,33 +76,73 @@ ITEMS=(
     ".icons"
     ".local/share/fonts"
     
-    # Arquivos do shell
+    # ═══════════════════════════════════════════════════════
+    # SHELL E DOTFILES
+    # ═══════════════════════════════════════════════════════
     ".bashrc"
     ".zshrc"
     ".profile"
     ".shell.pre-oh-my-zsh"
     
-    # Configurações adicionais úteis
-    ".config/betterlockscreen"
+    # ═══════════════════════════════════════════════════════
+    # UTILITÁRIOS DE SISTEMA (monitoring, fetch, etc)
+    # ═══════════════════════════════════════════════════════
     ".config/btop"
     ".config/fastfetch"
     ".config/neofetch"
-    ".config/spicetify"
+    
+    # ═══════════════════════════════════════════════════════
+    # SISTEMA (lockscreen, redshift, file manager)
+    # ═══════════════════════════════════════════════════════
+    ".config/betterlockscreen"
     ".config/redshift"
     ".config/Thunar"
     ".config/xfce4"
+    
+    # ═══════════════════════════════════════════════════════
+    # VISUALIZADORES DE IMAGEM
+    # ═══════════════════════════════════════════════════════
     ".config/viewnior"
     ".config/qimgv"
-    ".tmux.conf"
+    
+    # ═══════════════════════════════════════════════════════
+    # GIT CONFIG (sem credenciais)
+    # ═══════════════════════════════════════════════════════
     ".gitconfig"
     
-    # Papéis de parede
+    # ═══════════════════════════════════════════════════════
+    # PAPÉIS DE PAREDE
+    # ═══════════════════════════════════════════════════════
     "Pictures/Wallpapers"
     
-    # Scripts personalizados (opcional - comente se não quiser)
+    # ═══════════════════════════════════════════════════════
+    # SCRIPTS PERSONALIZADOS (descomente se necessário)
+    # ═══════════════════════════════════════════════════════
     # "scripts"
     # ".local/bin"
 )
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║  APLICATIVOS PESSOAIS EXCLUÍDOS PROPOSITALMENTE:              ║
+# ║                                                               ║
+# ║  ❌ .config/discord         (Discord)                         ║
+# ║  ❌ .config/Code            (VSCode/VSCodium)                 ║
+# ║  ❌ .config/google-chrome   (Chrome)                          ║
+# ║  ❌ .config/chromium        (Chromium)                        ║
+# ║  ❌ .config/BraveSoftware   (Brave)                           ║
+# ║  ❌ .config/Slack           (Slack)                           ║
+# ║  ❌ .config/spotify         (Spotify/Spicetify configs)       ║
+# ║  ❌ .config/obsidian        (Obsidian)                        ║
+# ║  ❌ .config/libreoffice     (LibreOffice)                     ║
+# ║  ❌ .mozilla                (Firefox profiles)                ║
+# ║  ❌ .thunderbird            (Thunderbird)                     ║
+# ║  ❌ .ssh                    (Chaves SSH - segurança!)         ║
+# ║  ❌ .gnupg                  (Chaves GPG - segurança!)         ║
+# ║  ❌ .password-store         (Pass - senhas!)                  ║
+# ║  ❌ .config/rclone          (Cloud configs com tokens)        ║
+# ║  ❌ .config/transmission    (Torrent history)                 ║
+# ║  ❌ .local/share/*          (Dados de aplicativos)            ║
+# ╚═══════════════════════════════════════════════════════════════╝
 
 # Verificar quais itens existem
 EXISTING_ITEMS=()
@@ -123,6 +185,10 @@ if tar -czf "$BACKUP_PATH" -C "$HOME" "${EXISTING_ITEMS[@]}" 2>/dev/null; then
     echo -e "1. Instale os pacotes base necessários (bspwm, polybar, etc.)"
     echo -e "2. Execute: ${BLUE}tar -xzf $BACKUP_NAME -C ~${NC}"
     echo -e "3. Configure os ícones: ${BLUE}papirus-folders -C violet --theme Papirus${NC}"
+    echo -e "4. Ajuste permissões: ${BLUE}chmod +x ~/.config/bspwm/bspwmrc${NC}"
+    echo ""
+    echo -e "${GREEN}📦 Backup contém APENAS configurações essenciais do ambiente${NC}"
+    echo -e "${GREEN}✓ SEM dados pessoais de aplicativos (Discord, Chrome, etc.)${NC}"
     echo ""
 else
     echo ""
