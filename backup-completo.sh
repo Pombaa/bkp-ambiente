@@ -226,8 +226,22 @@ if [[ -d "$STAGING_DIR/etc" ]]; then
     sudo chown -R "$USER":"$USER" "$STAGING_DIR/etc"
 fi
 
+# Get hostname using multiple fallback methods
+HOSTNAME_VALUE=""
+if [[ -r /proc/sys/kernel/hostname ]]; then
+    HOSTNAME_VALUE=$(cat /proc/sys/kernel/hostname 2>/dev/null)
+elif command -v uname >/dev/null 2>&1; then
+    HOSTNAME_VALUE=$(uname -n 2>/dev/null)
+elif [[ -n "$HOSTNAME" ]]; then
+    HOSTNAME_VALUE="$HOSTNAME"
+elif [[ -r /etc/hostname ]]; then
+    HOSTNAME_VALUE=$(cat /etc/hostname 2>/dev/null)
+else
+    HOSTNAME_VALUE="unknown"
+fi
+
 cat > "$STAGING_DIR/backup-metadata.txt" <<EOF
-host: $(hostname)
+host: ${HOSTNAME_VALUE}
 user: $USER
 timestamp: $TIMESTAMP
 archive: $(basename "$ARCHIVE_PATH")
