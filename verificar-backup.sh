@@ -49,6 +49,78 @@ if command -v flatpak >/dev/null 2>&1; then
 fi
 echo ""
 
+echo "🔍 Analisando listas de pacotes..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Pacotes considerados opcionais/pesados que podem ser instalados manualmente
+OPTIONAL_PACKAGE_PATTERNS=(
+    '^chromium$'
+    '^brave(-bin|-beta|-dev)?$'
+    '^slack(-desktop)?$'
+    '^obsidian$'
+    '^vesktop$'
+    '^code$'
+    '^vscodium(-bin)?$'
+)
+
+# Pacotes necessários para o ambiente bspwm funcionar corretamente
+BSPWM_DEPENDENCIES=(
+    "bspwm"
+    "sxhkd"
+    "polybar"
+    "rofi"
+    "picom"
+    "dunst"
+    "alacritty"
+    "kitty"
+    "tmux"
+    "feh"
+    "nitrogen"
+    "xorg-server"
+)
+
+mapfile -t ALL_PACKAGES < <(pacman -Qq 2>/dev/null || true)
+
+declare -a optional_found=()
+for pkg in "${ALL_PACKAGES[@]}"; do
+    for pattern in "${OPTIONAL_PACKAGE_PATTERNS[@]}"; do
+        if [[ $pkg =~ $pattern ]]; then
+            optional_found+=("$pkg")
+            break
+        fi
+    done
+done
+
+if [ ${#optional_found[@]} -gt 0 ]; then
+    mapfile -t optional_unique < <(printf '%s\n' "${optional_found[@]}" | sort -u)
+    echo "  ⚠️  Pacotes opcionais detectados (revise antes de restaurar):"
+    for pkg in "${optional_unique[@]}"; do
+        echo "     - $pkg"
+    done
+else
+    echo "  ✅ Nenhum pacote opcional problemático encontrado"
+fi
+echo ""
+
+declare -a missing_deps=()
+for dep in "${BSPWM_DEPENDENCIES[@]}"; do
+    if ! printf '%s\n' "${ALL_PACKAGES[@]}" | grep -Fxq "$dep"; then
+        missing_deps+=("$dep")
+    fi
+done
+
+if [ ${#missing_deps[@]} -gt 0 ]; then
+    mapfile -t missing_sorted < <(printf '%s\n' "${missing_deps[@]}" | sort -u)
+    echo "  ⚠️  Dependências do ambiente bspwm ausentes:"
+    for dep in "${missing_sorted[@]}"; do
+        echo "     - $dep"
+    done
+    echo "  ⚠️  Ajuste os scripts de restauração ou instale manualmente."
+else
+    echo "  ✅ Dependências principais do bspwm presentes nas listas"
+fi
+echo ""
+
 echo "✅ ARQUIVOS SEGUROS DO /etc:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 for file in /etc/pacman.conf /etc/makepkg.conf /etc/hosts /etc/environment; do
