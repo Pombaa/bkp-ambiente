@@ -67,6 +67,20 @@ copy_path() {
             --exclude='Local Storage/' \
             --exclude='IndexedDB/' \
             --exclude='Service Worker/' \
+            \
+            # --- ADIÇÕES PARA CORRIGIR O PROBLEMA ---
+            --exclude='discord/' \
+            --exclude='google-chrome/' \
+            --exclude='chromium/' \
+            --exclude='BraveSoftware/' \
+            --exclude='Code/' \
+            --exclude='VSCodium/' \
+            --exclude='spotify/' \
+            --exclude='Slack/' \
+            --exclude='obsidian/' \
+            --exclude='transmission/' \
+            # ----------------------------------------
+            \
             "$src/" "$dest/"
     else
         log "📄 Copiando $rel"
