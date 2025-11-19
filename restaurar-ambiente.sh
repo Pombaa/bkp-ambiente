@@ -506,6 +506,18 @@ else
 fi
 
 # ============================================================================
+# 12. CONFIGURAR PERMISSÕES SUDO PARA MONTAGEM AUTOMÁTICA
+# ============================================================================
+# Permite que o usuário execute 'mount' sem senha via sudo
+# Útil para montagens automáticas no bspwmrc (ex.: compartilhamentos CIFS)
+
+echo "🔧 Configurando permissões sudo para montagem sem senha..."
+echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/mount" | sudo tee /etc/sudoers.d/mount-livre >/dev/null
+sudo chmod 0440 /etc/sudoers.d/mount-livre
+echo "✅ Permissão configurada: $USER pode executar 'sudo mount' sem senha"
+echo "ℹ️  Útil para montagens automáticas no bspwmrc (ex.: CIFS do servidor da empresa)"
+
+# ============================================================================
 # RESUMO FINAL DA RESTAURAÇÃO
 # ============================================================================
 
@@ -525,6 +537,7 @@ echo "   ✅ Aplicativos Flatpak"
 echo "   ✅ Serviços do systemd"
 echo "   ✅ Configurações do servidor (PHP, Apache)"
 echo "   ✅ Configurações seguras do /etc"
+echo "   ✅ Permissão sudo para montagem sem senha"
 echo ""
 echo "🔒 O que NÃO foi restaurado (por segurança):"
 echo "   ❌ /etc/fstab - Configure manualmente se necessário"
@@ -535,7 +548,8 @@ echo ""
 echo "💡 Próximos passos:"
 echo "   1. Reinicie o sistema para aplicar todas as mudanças"
 echo "   2. Verifique se bspwm e polybar estão funcionando"
-echo "   3. Ajuste manualmente qualquer configuração específica"
+echo "   3. A montagem automática do servidor (CIFS) já está configurada no bspwmrc"
+echo "   4. Ajuste manualmente qualquer configuração específica"
 echo ""
 echo "🚀 Ambiente restaurado e pronto para uso!"
 echo "═══════════════════════════════════════════════════════════════"
