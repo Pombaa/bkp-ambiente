@@ -1,24 +1,48 @@
 #!/bin/bash
 
-set -euo pipefail
+# ============================================================================
+# SCRIPT DE BACKUP COMPLETO DO AMBIENTE
+# ============================================================================
+# Este script cria um backup completo e seguro do ambiente Linux, incluindo:
+# - Configurações de usuário (~/.config, dotfiles)
+# - Chaves SSH e GPG
+# - Listas de pacotes instalados (Pacman, AUR, Flatpak)
+# - Configurações seguras do sistema (/etc)
+# - Temas, ícones e fontes
+#
+# EXCLUI por segurança:
+# - Arquivos críticos de hardware (/etc/fstab, xorg.conf, udev)
+# - Apps com contas logadas (Discord, Chrome, Spotify, VSCode, etc.)
+# - Caches, logs e arquivos temporários
+# ============================================================================
 
-umask 077
+# Configurações de segurança do Bash
+set -euo pipefail  # Para na primeira falha, variáveis não definidas causam erro
+umask 077          # Arquivos criados serão privados (somente dono)
 
+# Verificação de dependências necessárias
 if ! command -v rsync >/dev/null 2>&1; then
     echo "❌ É necessário instalar o rsync para executar este script." >&2
     exit 1
 fi
 
+# Variáveis de configuração do backup
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_NAME="backup-ambiente-$TIMESTAMP"
 STAGING_DIR="$HOME/$BACKUP_NAME"
 BACKUP_LATEST="$HOME/backup-ambiente"
 ARCHIVE_PATH="$HOME/ambiente-completo-$TIMESTAMP.tar.gz"
 
+# ============================================================================
+# FUNÇÕES AUXILIARES
+# ============================================================================
+
+# Função para registrar mensagens com timestamp
 log() {
     printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
 }
 
+# Função de limpeza executada ao sair do script (sucesso ou erro)
 cleanup() {
     if [[ -n "${STAGING_DIR:-}" && -d "${STAGING_DIR:-}" ]]; then
         rm -rf "$STAGING_DIR"
@@ -26,6 +50,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Função para copiar arquivos/diretórios do usuário com exclusões inteligentes
+# Parâmetros:
+#   $1 - Caminho origem
+#   $2 - Caminho relativo no backup
+# Exclui automaticamente:
+#   - Caches e arquivos temporários
+#   - Aplicativos com contas logadas (Discord, Chrome, VSCode, etc.)
+#   - node_modules, .git, venv
 copy_path() {
     local src="$1"
     local rel="$2"
@@ -77,6 +109,12 @@ copy_path() {
             --exclude='Slack/' \
             --exclude='obsidian/' \
             --exclude='transmission/' \
+            --exclude='Postman/' \
+            --exclude='Ferdium/' \
+            --exclude='TabNine/' \
+            --exclude='apidog/' \
+            --exclude='beekeeper-studio/' \
+            --exclude='YouTube Music/' \
             "$src/" "$dest/"
     else
         log "📄 Copiando $rel"
@@ -85,6 +123,10 @@ copy_path() {
     fi
 }
 
+# Função para copiar arquivos do sistema (/etc) com permissões de superusuário
+# Parâmetros:
+#   $1 - Caminho origem (geralmente em /etc)
+#   $2 - Caminho relativo no backup
 copy_system_path() {
     local src="$1"
     local rel="$2"
@@ -104,9 +146,13 @@ copy_system_path() {
     fi
 }
 
+# ============================================================================
+# INÍCIO DO PROCESSO DE BACKUP
+# ============================================================================
+
 log "🚀 Iniciando backup completo do ambiente ($BACKUP_NAME)"
 
-# Verificar espaço disponível
+# Verificar espaço disponível (mínimo recomendado: 5GB)
 AVAILABLE_SPACE=$(df -BG "$HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
 if [[ $AVAILABLE_SPACE -lt 5 ]]; then
     log "⚠️  AVISO: Espaço em disco baixo (${AVAILABLE_SPACE}GB disponível)"
@@ -122,8 +168,67 @@ fi
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 
+# ============================================================================
+# LISTA DE DIRETÓRIOS E ARQUIVOS A SEREM COPIADOS
+# ============================================================================
+
+# Diretórios de configuração importantes do usuário
+# Inclui: WM (bspwm), barras (polybar), launchers (rofi), editores, apps GUI, etc.
+# EXCLUI: Apps com login (Discord, Chrome, Spotify, VSCode definidos nos --exclude)
 CONFIG_DIRS=(
-    ".config"
+    ".config/bspwm"
+    ".config/sxhkd"
+    ".config/polybar"
+    ".config/rofi"
+    ".config/picom"
+    ".config/picom-animations.conf"
+    ".config/dunst"
+    ".config/alacritty"
+    ".config/kitty"
+    ".config/terminator"
+    ".config/nitrogen"
+    ".config/feh"
+    ".config/gtk-3.0"
+    ".config/gtk-4.0"
+    ".config/gtk-2.0"
+    ".config/Thunar"
+    ".config/xfce4"
+    ".config/fontconfig"
+    ".config/neofetch"
+    ".config/fastfetch"
+    ".config/htop"
+    ".config/btop"
+    ".config/ranger"
+    ".config/nvim"
+    ".config/vim"
+    ".config/eww"
+    ".config/betterlockscreen"
+    ".config/autostart"
+    ".config/menus"
+    ".config/systemd"
+    ".config/mpv"
+    ".config/ibus"
+    ".config/VirtualBox"
+    ".config/go"
+    ".config/spicetify"
+    ".config/xnconvert"
+    ".config/simple-update-notifier"
+    ".config/libreoffice"
+    ".config/GIMP"
+    ".config/gthumb"
+    ".config/qimgv"
+    ".config/viewnior"
+    ".config/featherpad"
+    ".config/sublime-text"
+    ".config/filezilla"
+    ".config/qBittorrent"
+    ".config/redshift"
+    ".config/pavucontrol.ini"
+    ".config/pulse"
+    ".config/gwenviewrc"
+    ".config/QtProject.conf"
+    ".config/picom-animations.conf"
+    ".config/mimeapps.list"
     ".local/bin"
     ".local/share/applications"
     ".local/share/icons"
@@ -134,6 +239,27 @@ CONFIG_DIRS=(
     ".themes"
     ".icons"
 )
+
+# ============================================================================
+# SALVAR LISTAS DE TEMAS E ÍCONES DO SISTEMA
+# ============================================================================
+# Salva uma lista de referência dos temas/ícones instalados em /usr/share
+# para facilitar reinstalação posterior
+
+# Copiar temas especiais (Catppuccin, Dracula, etc.)
+if [[ -d "/usr/share/themes" ]]; then
+    log "🎨 Salvando lista de temas do sistema..."
+    ls -1 /usr/share/themes > "$STAGING_DIR/system-themes.txt" 2>/dev/null || true
+fi
+
+if [[ -d "/usr/share/icons" ]]; then
+    log "🎨 Salvando lista de ícones do sistema..."
+    ls -1 /usr/share/icons > "$STAGING_DIR/system-icons.txt" 2>/dev/null || true
+fi
+
+# ============================================================================
+# COPIAR DOTFILES (arquivos de configuração na raiz do ~)
+# ============================================================================
 
 CONFIG_FILES=(
     ".bashrc"
@@ -147,6 +273,10 @@ CONFIG_FILES=(
     ".gtkrc-2.0"
 )
 
+# ============================================================================
+# EXECUTAR CÓPIAS DE ARQUIVOS E DIRETÓRIOS
+# ============================================================================
+
 for dir in "${CONFIG_DIRS[@]}"; do
     copy_path "$HOME/$dir" "$dir"
 done
@@ -155,9 +285,15 @@ for file in "${CONFIG_FILES[@]}"; do
     copy_path "$HOME/$file" "$file"
 done
 
+# Copiar chaves SSH e GPG (arquivos sensíveis)
 copy_path "$HOME/.ssh" ".ssh"
 copy_path "$HOME/.gnupg" ".gnupg"
 
+# ============================================================================
+# EXPORTAR CONFIGURAÇÕES DO SISTEMA
+# ============================================================================
+
+# Exportar configurações do dconf (GNOME/GTK settings)
 if command -v dconf >/dev/null 2>&1; then
     log "🧠 Exportando configurações do dconf..."
     if dconf dump / > "$STAGING_DIR/dconf-settings.ini" 2>/dev/null; then
@@ -168,6 +304,7 @@ if command -v dconf >/dev/null 2>&1; then
     fi
 fi
 
+# Salvar lista de aplicativos Flatpak instalados
 if command -v flatpak >/dev/null 2>&1; then
     log "📦 Salvando aplicativos Flatpak instalados..."
     if flatpak list --app --columns=application > "$STAGING_DIR/flatpak-apps.txt"; then
@@ -178,11 +315,16 @@ if command -v flatpak >/dev/null 2>&1; then
     fi
 fi
 
+# Salvar listas de pacotes instalados via Pacman/Yay
+# - pkglist-pacman.txt: Pacotes oficiais dos repos
+# - pkglist-aur.txt: Pacotes do AUR
+# - pkglist-all.txt: Todos os pacotes (referência completa)
 log "📦 Salvando listas de pacotes do Pacman/Yay..."
 pacman -Qqen > "$STAGING_DIR/pkglist-pacman.txt"
 pacman -Qqem > "$STAGING_DIR/pkglist-aur.txt"
 pacman -Qq > "$STAGING_DIR/pkglist-all.txt"
 
+# Salvar serviços do systemd habilitados (para reativar após restauração)
 if command -v systemctl >/dev/null 2>&1; then
     log "⚙️ Registrando serviços habilitados do usuário..."
     if systemctl --user list-unit-files --state=enabled --no-legend 2>/dev/null | awk '{print $1}' | sort -u > "$STAGING_DIR/systemd-user-units.txt"; then
@@ -201,12 +343,19 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
+# Exportar crontab do usuário (agendamentos de tarefas)
 if crontab -l >/dev/null 2>&1; then
     log "⏰ Exportando crontab do usuário..."
     crontab -l > "$STAGING_DIR/crontab.txt"
 else
     log "ℹ️ Nenhuma crontab encontrada para o usuário."
 fi
+
+# ============================================================================
+# COPIAR ARQUIVOS SEGUROS DO /ETC
+# ============================================================================
+# APENAS arquivos seguros que não quebram o sistema em outra máquina
+# NUNCA inclui: fstab, xorg.conf, udev, systemd/system (específicos do hardware)
 
 log "🧱 Copiando APENAS configurações SEGURAS do /etc..."
 # ⚠️ REMOVIDOS: /etc/fstab, /etc/systemd/system, /etc/X11/xorg.conf.d, /etc/udev/rules.d
@@ -215,6 +364,8 @@ SYSTEM_PATHS=(
     "/etc/makepkg.conf"
     "/etc/hosts"
     "/etc/environment"
+    "/etc/php"
+    "/etc/httpd"
 )
 
 for path in "${SYSTEM_PATHS[@]}"; do
@@ -225,6 +376,11 @@ done
 if [[ -d "$STAGING_DIR/etc" ]]; then
     sudo chown -R "$USER":"$USER" "$STAGING_DIR/etc"
 fi
+
+# ============================================================================
+# CRIAR ARQUIVO DE METADADOS DO BACKUP
+# ============================================================================
+# Informações sobre origem do backup para identificação futura
 
 # Get hostname using multiple fallback methods
 HOSTNAME_VALUE=""
@@ -247,8 +403,17 @@ timestamp: $TIMESTAMP
 archive: $(basename "$ARCHIVE_PATH")
 EOF
 
-log "🗜️  Gerando arquivo comprimido $ARCHIVE_PATH"
+# ============================================================================
+# COMPRIMIR E FINALIZAR BACKUP
+# ============================================================================
+
+log "🗂️  Gerando arquivo comprimido $ARCHIVE_PATH"
 tar -czf "$ARCHIVE_PATH" -C "$HOME" "$BACKUP_NAME"
+
+# ============================================================================
+# VERIFICAÇÃO DE SEGURANÇA
+# ============================================================================
+# Garante que nenhum arquivo perigoso foi incluído por engano
 
 # Verificação de segurança: garantir que arquivos perigosos não foram incluídos
 log "🔍 Verificando integridade e segurança do backup..."
@@ -266,6 +431,10 @@ else
     log "✅ Verificação de segurança aprovada - nenhum arquivo perigoso encontrado"
 fi
 
+# ============================================================================
+# FINALIZAR E EXIBIR RESUMO
+# ============================================================================
+
 log "🔄 Atualizando diretório base $BACKUP_LATEST"
 rm -rf "$BACKUP_LATEST"
 mv "$STAGING_DIR" "$BACKUP_LATEST"
@@ -280,7 +449,8 @@ log "   - /etc/systemd/system (serviços do sistema)"
 log "   - /etc/X11/xorg.conf.d (configurações de vídeo)"
 log "   - /etc/udev/rules.d (regras de hardware)"
 log ""
-log "ℹ️  Também NÃO inclui (para reduzir tamanho):"
+log "ℹ️  Também NÃO inclui (para reduzir tamanho e evitar conflitos):"
+log "   - Apps com login: Discord, Chrome, Spotify, VSCode, Postman, Ferdium, etc."
 log "   - Caches de navegadores e aplicativos"
 log "   - Arquivos temporários e logs"
 log "   - node_modules e .git"
