@@ -240,6 +240,10 @@ fi
 # Instalar dependências de compilação necessárias para o yay
 sudo pacman -S --needed --noconfirm base-devel git
 
+# Evitar prompts de credenciais Git (ex.: GitHub) durante builds do AUR
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=/bin/true
+
 # Garantir que o yay esteja instalado antes de restaurar pacotes AUR
 # yay é um helper AUR que facilita instalação de pacotes do AUR
 if ! command -v yay &>/dev/null; then
@@ -249,6 +253,10 @@ if ! command -v yay &>/dev/null; then
     (cd /tmp/yay && makepkg -si --noconfirm)
 fi
 
+# Diretório para logs de instalação do AUR
+AUR_LOG_DIR=$(mktemp -d -t aurlogs-XXXXXX 2>/dev/null || echo "/tmp/aur-logs-$$")
+echo "📝 Logs de AUR serão salvos em: $AUR_LOG_DIR"
+
 # Reinstalar pacotes do Yay (AUR) - um por vez para evitar conflitos
 if [ -f "$BACKUP_DIR/pkglist-aur.txt" ]; then
     echo "📦 Reinstalando pacotes do Yay (AUR)..."
@@ -257,7 +265,16 @@ if [ -f "$BACKUP_DIR/pkglist-aur.txt" ]; then
         [[ "$pkg" =~ ^# ]] && continue
         if ! pacman -Qq "$pkg" &>/dev/null; then
             echo "📥 Instalando $pkg..."
-            yay -S --needed --noconfirm "$pkg" || echo "⚠️ Falha ao instalar $pkg"
+            LOGFILE="$AUR_LOG_DIR/$pkg.log"
+            if ! yay -S --needed --noconfirm "$pkg" >"$LOGFILE" 2>&1; then
+                if grep -qiE "(Authentication failed|could not read Username|Permission denied \(publickey\)|Repository not found|HTTP Basic: Access denied|requested URL returned error|terminal prompts disabled|Could not resolve host|Failed to connect to github\.com)" "$LOGFILE"; then
+                    echo "🔒 Possível falha de credencial/SSH Git ao instalar $pkg (veja $LOGFILE)"
+                else
+                    echo "⚠️ Falha ao instalar $pkg (veja $LOGFILE)"
+                fi
+            else
+                echo "✅ $pkg instalado com sucesso"
+            fi
         else
             echo "✅ $pkg já está instalado"
         fi
@@ -279,7 +296,16 @@ APPS_ESSENCIAIS=("google-chrome" "visual-studio-code-bin" "spotify" "discord")
 for app in "${APPS_ESSENCIAIS[@]}"; do
     if ! pacman -Qq "$app" &>/dev/null; then
         echo "📥 Instalando $app..."
-        yay -S --needed --noconfirm "$app" || echo "⚠️ Falha ao instalar $app"
+        LOGFILE="$AUR_LOG_DIR/$app.log"
+        if ! yay -S --needed --noconfirm "$app" >"$LOGFILE" 2>&1; then
+            if grep -qiE "(Authentication failed|could not read Username|Permission denied \(publickey\)|Repository not found|HTTP Basic: Access denied|requested URL returned error|terminal prompts disabled|Could not resolve host|Failed to connect to github\.com)" "$LOGFILE"; then
+                echo "🔒 Possível falha de credencial/SSH Git ao instalar $app (veja $LOGFILE)"
+            else
+                echo "⚠️ Falha ao instalar $app (veja $LOGFILE)"
+            fi
+        else
+            echo "✅ $app instalado com sucesso"
+        fi
     else
         echo "✅ $app já está instalado"
     fi
@@ -314,6 +340,10 @@ else
         papirus-folders -C violet --theme Papirus-Dark || echo "⚠️ Falha ao configurar cores do Papirus"
     fi
 fi
+
+# Reverter variáveis de ambiente relacionadas ao Git
+unset GIT_TERMINAL_PROMPT || true
+unset GIT_ASKPASS || true
 
 # ============================================================================
 # 8. REINSTALAR APLICATIVOS FLATPAK
