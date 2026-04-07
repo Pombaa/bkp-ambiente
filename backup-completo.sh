@@ -23,8 +23,19 @@ umask 077          # Arquivos criados serão privados (somente dono)
 # ============================================================================
 # VALIDAÇÃO DE PRIVILÉGIOS E HOME DO USUÁRIO
 # ============================================================================
-# Se o script foi executado com sudo, re-executa como o usuário real
-# para garantir que $HOME e $USER apontam para o usuário correto
+# IMPORTANTE: Este script DEVE ser executado como usuário comum (não root)
+# Se alguém tentar usar sudo, o script detecta e re-executa como o 
+# usuário real para garantir que o backup vai para o local correto.
+#
+# Por exemplo:
+#   $ sudo ./backup-completo.sh
+#   Script vai detectar SUDO_USER, descobrir sua home real, e re-executar como ele
+#
+# Por que isso importa?
+#   - Se rodar como root, a variável $HOME vira /root (errado!)
+#   - Backup precisaria vir de /root em vez de /home/usuário (ruim!)
+#   - Isso previne acidentes e garante que a home correta seja backupeada
+# ============================================================================
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
@@ -87,10 +98,19 @@ trap cleanup EXIT
 # Parâmetros:
 #   $1 - Caminho origem
 #   $2 - Caminho relativo no backup
-# Exclui automaticamente:
-#   - Caches e arquivos temporários
-#   - Aplicativos com contas logadas (Discord, Chrome, VSCode, etc.)
-#   - node_modules, .git, venv
+# 
+# EXCLUSÕES AUTOMÁTICAS (para reduzir tamanho e evitar dados sensíveis):
+#   - Cache/ (navegadores, aplicativos): gigabytes desnecessários
+#   - Logs: informações temporárias que mudam constantemente
+#   - node_modules, .git: regeneráveis, ocupam muito espaço
+#   - Dados de login (Discord, Chrome, Spotify, VSCode): contêm tokens/sessões
+#   - .venv, __pycache__: ambientes de desenvolvimento, regeneráveis
+#
+# Por que excluir apps com login?
+#   - Discord, Chrome, Spotify etc. contêm cookies e tokens
+#   - Restaurar esses cookies em máquina nova é INSEGURO
+#   - Melhor: deixar usuário fazer login novamente (autentica corretamente)
+# ============================================================================
 copy_path() {
     local src="$1"
     local rel="$2"
@@ -395,7 +415,28 @@ fi
 # COPIAR ARQUIVOS SEGUROS DO /ETC
 # ============================================================================
 # APENAS arquivos seguros que não quebram o sistema em outra máquina
-# NUNCA inclui: fstab, xorg.conf, udev, systemd/system (específicos do hardware)
+#
+# ⚠️ ARQUIVOS QUE NUNCA SÃO INCLUÍDOS NO BACKUP (E POR QUE):
+#
+#   1. /etc/fstab
+#      POR QUE: Contém mapeamento de discos/partições (específico do hardware)
+#      RISCO: Ao restaurar em máquina diferente com discos diferentes = 
+#             máquina pode não bootar ou montar partições erradas!
+#
+#   2. /etc/systemd/system
+#      POR QUE: Contém serviços específicos do sistema
+#      RISCO: Serviços podem referenciar hardware/pacotes que não existem na nova máquina
+#
+#   3. /etc/X11/xorg.conf.d
+#      POR QUE: Contém configuração de vídeo/GPU (específico do hardware)
+#      RISCO: GPU diferente na nova máquina = tela preta ao rebootar!
+#
+#   4. /etc/udev/rules.d
+#      POR QUE: Contém regras de detecção de hardware
+#      RISCO: Hardware diferente = comportamento imprevisível de periféricos
+#
+# REGRA DE OURO: Se o arquivo descreve hardware físico, NÃO é backupeado!
+# ============================================================================
 
 log "🧱 Copiando APENAS configurações SEGURAS do /etc..."
 # ⚠️ REMOVIDOS: /etc/fstab, /etc/systemd/system, /etc/X11/xorg.conf.d, /etc/udev/rules.d

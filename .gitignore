@@ -1,0 +1,36 @@
+# Ignorar arquivos de backup local
+backup-ambiente/
+backup-ambiente-*/
+*.tar.gz
+ambiente-completo-*.tar.gz
+
+# Ignorar logs de instalação do AUR
+aur-logs-*
+
+# Ignorar cache e arquivos temporários
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Ignorar IDE files
+.vscode/
+.idea/
+*.code-workspace
+
+# Ignorar node modules e caches de desenvolvimento
+node_modules/
+.npm/
+.yarn/
+__pycache__/
+*.pyc
+
+# Arquivos de teste locais
+test-restore.sh
+*test*.sh
+
+# Diretórios da máquina local (dados pessoais)
+/home/*/
+
+# Arquivo de análise de segurança (uso interno, não publicar)
+SECURITY_ANALYSIS.md

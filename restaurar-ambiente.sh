@@ -24,8 +24,23 @@ set -o pipefail # Erros em pipes são detectados
 # ============================================================================
 # VALIDAÇÃO DE PRIVILÉGIOS E HOME DO USUÁRIO
 # ============================================================================
-# Se o script foi executado com sudo, re-executa como o usuário real
-# para garantir que $HOME e $USER apontam para o usuário correto
+# IMPORTANTE: Este script DEVE ser executado como usuário comum (não root)
+# Se alguém tentar usar sudo, o script detecta e re-executa como o 
+# usuário real para garantir que a restauração vai para o local correto.
+#
+# Por exemplo:
+#   $ sudo ./restaurar-ambiente.sh
+#   Script vai detectar SUDO_USER, descobrir sua home real, e re-executar como ele
+#
+# Por que isso importa?
+#   - Se rodar como root, a variável $HOME vira /root (errado!)
+#   - Os arquivos seriam restaurados para /root em vez de /home/usuário (muito ruim!)
+#   - Isso previne acidentes e garante que a home correta seja restaurada
+#
+# Se alguém tentar rodar como root puro (sem sudo):
+#   $ su -
+#   # ./restaurar-ambiente.sh    <-- ERRO! Não permite!
+# ============================================================================
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
@@ -300,9 +315,20 @@ fi
 # Instalar dependências de compilação necessárias para o yay
 sudo pacman -S --needed --noconfirm base-devel git
 
-# Evitar prompts de credenciais Git (ex.: GitHub) durante builds do AUR
-export GIT_TERMINAL_PROMPT=0
-export GIT_ASKPASS=/bin/true
+# Evitar prompts de credenciais do Git durante instalação de pacotes AUR
+# Por quê? Alguns pacotes AUR usam Git para clonar repositórios
+# Se solicitasse senha, instalação ficaria pendurada esperando input
+#
+# GIT_TERMINAL_PROMPT=0
+#   → Desabilita prompts interativos do Git (não pede usuário/senha)
+#
+# GIT_ASKPASS=/bin/true  
+#   → Simula always "sim" para prompts de credencial (não abre dialogo)
+#
+# IMPORTANTE: Isso é SEGURO porque:
+#   - Se o pacote AUR precisa de autenticação privada, ele vai falhar
+#   - Se falhar, vemos o erro e podemos investigar (não fica travado)
+#   - Não estamos ignorando erros, apenas automatizando "não tenho credencial"
 
 # Garantir que o yay esteja instalado antes de restaurar pacotes AUR
 # yay é um helper AUR que facilita instalação de pacotes do AUR
@@ -402,6 +428,10 @@ else
 fi
 
 # Reverter variáveis de ambiente relacionadas ao Git
+# Por quê? Essas variáveis foram definidas acima para compilação automatizada
+# NUNCA deixar essas variáveis globais! Poderia afetar outros comandos Git do usuário
+#
+# Mesmo que || true falhe, não queremos que a instalação continue com essas vars
 unset GIT_TERMINAL_PROMPT || true
 unset GIT_ASKPASS || true
 
@@ -476,6 +506,31 @@ fi
 # ============================================================================
 # Apenas arquivos/diretórios que não dependem de hardware específico
 # Valida disponibilidade de software antes de restaurar (PHP, Apache)
+#
+# ⚠️ ARQUIVOS QUE NUNCA SÃO RESTAURADOS (E POR QUE):
+#
+#   1. /etc/fstab
+#      POR QUE: Contém mapeamento de discos/partições
+#      PROBLEMA: Cada máquina tem discos diferentes
+#      RISCO: Se restaurado, máquina pode não bootar! (pontos de montagem errados)
+#
+#   2. /etc/systemd/system
+#      POR QUE: Contém serviços do sistema específicos da máquina
+#      PROBLEMA: Máquina nova pode não ter os mesmos serviços
+#      RISCO: Serviços tentam usar hardware/pacotes que não existem
+#
+#   3. /etc/X11/xorg.conf.d
+#      POR QUE: Contém configuração de vídeo/monitor
+#      PROBLEMA: Cada máquina tem GPU/monitor diferente
+#      RISCO: Pode resultar em tela preta ao rebootar!
+#
+#   4. /etc/udev/rules.d
+#      POR QUE: Contém regras de hardware (teclado, mouse, impressora, etc)
+#      PROBLEMA: Hardware diferente em máquina nova
+#      RISCO: Dispositivos podem não funcionar ou ter comportamento errado
+#
+# REGRA GERAL: Se o arquivo depende de hardware físico, NUNCA restauramos!
+# ============================================================================
 
 # 8. Restaurar APENAS arquivos SEGUROS do /etc
 if [ -d "$BACKUP_DIR/etc" ]; then
@@ -614,10 +669,23 @@ echo ""
 echo "🚀 Ambiente restaurado e pronto para uso!"
 
 # ============================================================================
-# 13. VALIDAÇÃO PÓS-RESTAURAÇÃO (PREVINE TELA PRETA)
+# 13. VALIDAÇÃO PÓS-RESTAURAÇÃO (PREVINE TELA PRETA )
 # ============================================================================
-# Verifica se os arquivos essenciais do bspwm/sxhkd estão funcionais
+# CRÍTICO: Verifica se os arquivos essenciais do bspwm/sxhkd estão funcionais
 # antes de o usuário reiniciar o sistema.
+#
+# Por que isso importa?
+#   - Se bspwmrc tiver erro de sintaxe, pode resultar em "tela preta" ao rebootar
+#   - Se bspwmrc ou sxhkdrc não existir, o WM não inicia
+#   - Essa validação ajuda a detectar problemas ANTES de rebootar
+#
+# O que verifica?
+#   ✓ bspwmrc existe e é executável
+#   ✓ bspwmrc tem sintaxe bash correta
+#   ✓ sxhkdrc existe (atalhos de teclado)
+#   ✓ Ferramentas essenciais (bspc, sxhkd) estão instaladas
+#   ✓ bspwmrc não depende de arquivos ausentes
+# ============================================================================
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "🔍 Validação pós-restauração..."
@@ -648,7 +716,7 @@ if [[ -f "$BSPWMRC" ]]; then
             echo "   ✅ bspwmrc: sintaxe OK"
         fi
     elif [[ "$SHEBANG" == *"/bin/sh"* ]]; then
-        echo "   ⚠️  bspwmrc usa #!/bin/sh — verifique se não usa bash-ismos (arrays, source, (( )))"
+        echo "   ⚠️  bspwmrc usa #!/bin/sh — verifique se não usa características bash (arrays, source, (( )))"
     fi
 fi
 
