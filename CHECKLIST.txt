@@ -32,6 +32,7 @@
 
 □ Criar o backup
   └─→ ./backup-completo.sh
+  └─→ Executar com o usuário normal, sem sudo
   └─→ Aguardar conclusão (pode demorar 5-15 min)
   └─→ Verificar mensagem de sucesso
 
@@ -41,11 +42,11 @@
   └─→ Se reprovado (❌), NÃO usar o backup!
 
 □ Verificar arquivo criado
-  └─→ ls -lh ~/ambiente-completo-*.tar.gz
+  └─→ ls -lh ~/bkp-ambiente/ambiente-completo-*.tar.gz
   └─→ Anotar nome e tamanho do arquivo
 
 □ Testar integridade do arquivo (opcional)
-  └─→ tar -tzf ~/ambiente-completo-*.tar.gz > /dev/null
+  └─→ tar -tzf ~/bkp-ambiente/ambiente-completo-*.tar.gz > /dev/null
   └─→ Se erro, refazer backup
 
 
@@ -54,7 +55,7 @@
 ═══════════════════════════════════════════════════════════════════════════
 
 □ Copiar para HD externo
-  └─→ cp ~/ambiente-completo-*.tar.gz /media/hd-externo/
+  └─→ cp ~/bkp-ambiente/ambiente-completo-*.tar.gz /media/hd-externo/
 
 □ Upload para nuvem (escolha uma ou mais):
   □ Google Drive
@@ -64,7 +65,7 @@
   □ Servidor pessoal
 
 □ Copiar para outro computador (opcional)
-  └─→ scp ~/ambiente-completo-*.tar.gz user@servidor:~/
+  └─→ scp ~/bkp-ambiente/ambiente-completo-*.tar.gz user@servidor:~/bkp-ambiente/
 
 □ Verificar cópias foram feitas com sucesso
   └─→ Confirmar tamanho dos arquivos
@@ -101,7 +102,7 @@
 ═══════════════════════════════════════════════════════════════════════════
 
 □ Verificar backup está na home
-  └─→ ls -lh ~/ambiente-completo-*.tar.gz
+  └─→ ls -lh ~/bkp-ambiente/ambiente-completo-*.tar.gz
 
 □ [OPCIONAL] Testar backup em VM primeiro
   □ Criar VM com Arch Linux
@@ -111,6 +112,7 @@
 
 □ Executar restauração
   └─→ ./restaurar-ambiente.sh
+  └─→ Executar com o usuário normal, sem sudo
   └─→ Aguardar (pode demorar 30-60 min)
   └─→ Confirmar mensagem de sucesso
 
@@ -160,7 +162,7 @@
 ═══════════════════════════════════════════════════════════════════════════
 
 □ Reinstalar pacotes que falharam
-  └─→ Verificar ~/backup-ambiente/pkglist-all.txt
+  └─→ Verificar ~/bkp-ambiente/backup-ambiente/pkglist-all.txt
   └─→ yay -S pacote-que-falhou
 
 □ Configurar tema de ícones (se não automático)

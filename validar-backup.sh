@@ -11,10 +11,15 @@ echo "╚═══════════════════════�
 echo ""
 
 # Encontrar o backup mais recente
-BACKUP_FILE=$(ls -t ~/ambiente-completo-*.tar.gz 2>/dev/null | head -1)
+BACKUP_ROOT_DIR="$HOME/bkp-ambiente"
+BACKUP_FILE=$(ls -t "$BACKUP_ROOT_DIR"/ambiente-completo-*.tar.gz 2>/dev/null | head -1)
 
 if [[ -z "$BACKUP_FILE" ]]; then
-    echo "❌ Nenhum arquivo de backup encontrado em ~/"
+    BACKUP_FILE=$(ls -t ~/ambiente-completo-*.tar.gz 2>/dev/null | head -1)
+fi
+
+if [[ -z "$BACKUP_FILE" ]]; then
+    echo "❌ Nenhum arquivo de backup encontrado em $BACKUP_ROOT_DIR nem em ~/"
     echo ""
     echo "Execute primeiro: ./backup-completo.sh"
     exit 1

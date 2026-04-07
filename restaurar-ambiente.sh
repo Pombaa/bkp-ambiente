@@ -21,7 +21,33 @@ set -e          # Para no primeiro erro
 set -u          # Variáveis não definidas causam erro
 set -o pipefail # Erros em pipes são detectados
 
-BACKUP_DIR="$HOME/backup-ambiente"
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+        if [[ -z "$REAL_HOME" ]]; then
+            echo "❌ Não foi possível identificar a home do usuário $SUDO_USER." >&2
+            exit 1
+        fi
+
+        echo "⚠️  Script iniciado com sudo. Reexecutando como $SUDO_USER para restaurar na home correta..."
+        exec sudo -H -u "$SUDO_USER" env HOME="$REAL_HOME" USER="$SUDO_USER" bash "$0" "$@"
+    fi
+
+    echo "❌ Não execute este script como root." >&2
+    echo "❌ Rode com o usuário dono do ambiente; o script pedirá sudo só quando precisar." >&2
+    exit 1
+fi
+
+TARGET_USER="${USER:-$(id -un)}"
+TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+
+if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
+    echo "❌ Não foi possível resolver a home do usuário $TARGET_USER." >&2
+    exit 1
+fi
+
+BACKUP_ROOT_DIR="$TARGET_HOME/bkp-ambiente"
+BACKUP_DIR="$BACKUP_ROOT_DIR/backup-ambiente"
 
 # ============================================================================
 # AVISOS INICIAIS E VERIFICAÇÕES
@@ -30,6 +56,10 @@ BACKUP_DIR="$HOME/backup-ambiente"
 echo "═══════════════════════════════════════════════════════════════"
 echo "🔁 Iniciando restauração SEGURA do ambiente"
 echo "═══════════════════════════════════════════════════════════════"
+echo ""
+echo "👤 Usuário de destino: $TARGET_USER"
+echo "🏠 Home de destino: $TARGET_HOME"
+echo "📂 Pasta de backup: $BACKUP_ROOT_DIR"
 echo ""
 echo "⚠️  ATENÇÃO: Este script restaura APENAS configurações de usuário"
 echo "⚠️  e arquivos SEGUROS do sistema."
@@ -46,8 +76,13 @@ echo ""
 sleep 2
 
 if ! command -v rsync >/dev/null 2>&1; then
-    echo "❌ O utilitário rsync é necessário para este script." >&2
-    exit 1
+    echo "📦 rsync não encontrado. Instalando via pacman..."
+    sudo pacman -S --needed --noconfirm rsync
+
+    if ! command -v rsync >/dev/null 2>&1; then
+        echo "❌ Não foi possível instalar o rsync automaticamente." >&2
+        exit 1
+    fi
 fi
 
 # ============================================================================
@@ -56,23 +91,47 @@ fi
 # Se o diretório backup-ambiente não existe ou está vazio,
 # procura e extrai o arquivo .tar.gz mais recente
 
+find_latest_archive() {
+    local latest_file=""
+
+    latest_file=$(ls -t "$BACKUP_ROOT_DIR"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
+    if [ -n "$latest_file" ]; then
+        printf '%s\n' "$latest_file"
+        return 0
+    fi
+
+    latest_file=$(ls -t "$TARGET_HOME"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
+    if [ -n "$latest_file" ]; then
+        printf '%s\n' "$latest_file"
+    fi
+}
+
 # Se a pasta backup-ambiente não existir, criar
+mkdir -p "$BACKUP_ROOT_DIR"
 mkdir -p "$BACKUP_DIR"
 
 # Se a pasta estiver vazia, procurar o arquivo .tar.gz e extrair
 if [ -z "$(ls -A "$BACKUP_DIR")" ]; then
-    TARFILE=$(ls "$HOME"/ambiente-completo-*.tar.gz 2>/dev/null | tail -n 1 || true)
+    if [ -d "$TARGET_HOME/backup-ambiente" ] && [ -n "$(ls -A "$TARGET_HOME/backup-ambiente" 2>/dev/null)" ]; then
+        echo "📦 Encontrado backup antigo em $TARGET_HOME/backup-ambiente"
+        echo "📦 Migrando para $BACKUP_DIR"
+        rm -rf "$BACKUP_DIR"
+        mv "$TARGET_HOME/backup-ambiente" "$BACKUP_DIR"
+    fi
+
+    TARFILE=$(find_latest_archive)
     if [ -f "$TARFILE" ]; then
         echo "📦 Extraindo backup $TARFILE para $BACKUP_DIR"
-        tar -xzf "$TARFILE" -C "$HOME"
+        tar -xzf "$TARFILE" -C "$BACKUP_ROOT_DIR"
         # O tar cria a pasta backup-ambiente-YYYYMMDD, mover para backup-ambiente fixo
         EXTRACTED_DIR=$(basename "$TARFILE" .tar.gz | sed 's/ambiente-completo/backup-ambiente/')
         if [ "$EXTRACTED_DIR" != "backup-ambiente" ]; then
             rm -rf "$BACKUP_DIR"
-            mv "$HOME/$EXTRACTED_DIR" "$BACKUP_DIR"
+            mv "$BACKUP_ROOT_DIR/$EXTRACTED_DIR" "$BACKUP_DIR"
         fi
     else
         echo "❌ Nenhum arquivo de backup encontrado para restaurar!"
+        echo "❌ Locais verificados: $BACKUP_ROOT_DIR e $TARGET_HOME"
         exit 1
     fi
 fi
@@ -142,14 +201,14 @@ CONFIG_DIRS=(
 for dir in "${CONFIG_DIRS[@]}"; do
     if [ -d "$BACKUP_DIR/.config/$dir" ]; then
         echo "📁 Restaurando .config/$dir"
-        mkdir -p "$HOME/.config/$dir"
-        rsync -a "$BACKUP_DIR/.config/$dir/" "$HOME/.config/$dir/"
-        sudo chown -R "$USER":"$USER" "$HOME/.config/$dir" || true
+        mkdir -p "$TARGET_HOME/.config/$dir"
+        rsync -a "$BACKUP_DIR/.config/$dir/" "$TARGET_HOME/.config/$dir/"
+        sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.config/$dir" || true
     elif [ -f "$BACKUP_DIR/.config/$dir" ]; then
         echo "📄 Restaurando .config/$dir"
-        mkdir -p "$HOME/.config"
-        rsync -a "$BACKUP_DIR/.config/$dir" "$HOME/.config/$dir"
-        sudo chown "$USER":"$USER" "$HOME/.config/$dir" || true
+        mkdir -p "$TARGET_HOME/.config"
+        rsync -a "$BACKUP_DIR/.config/$dir" "$TARGET_HOME/.config/$dir"
+        sudo chown "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.config/$dir" || true
     fi
 done
 
@@ -163,9 +222,9 @@ CONFIG_FILES=(.bashrc .zshrc .xinitrc .xprofile .profile .vimrc .gitconfig .tmux
 for file in "${CONFIG_FILES[@]}"; do
     if [ -f "$BACKUP_DIR/$file" ]; then
         echo "📄 Restaurando $file"
-        mkdir -p "$(dirname "$HOME/$file")"
-        rsync -a "$BACKUP_DIR/$file" "$HOME/$file"
-        sudo chown "$USER":"$USER" "$HOME/$file" || true
+        mkdir -p "$(dirname "$TARGET_HOME/$file")"
+        rsync -a "$BACKUP_DIR/$file" "$TARGET_HOME/$file"
+        sudo chown "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/$file" || true
     fi
 done
 
@@ -176,16 +235,16 @@ done
 
 # 3. Restaurar diretórios pessoais
 declare -A dirs=(
-    ["$BACKUP_DIR/.local/bin"]="$HOME/.local/bin"
-    ["$BACKUP_DIR/.local/share/applications"]="$HOME/.local/share/applications"
-    ["$BACKUP_DIR/.local/share/icons"]="$HOME/.local/share/icons"
-    ["$BACKUP_DIR/.local/share/themes"]="$HOME/.local/share/themes"
-    ["$BACKUP_DIR/.local/share/Thunar"]="$HOME/.local/share/Thunar"
-    ["$BACKUP_DIR/.local/share/xfce4"]="$HOME/.local/share/xfce4"
-    ["$BACKUP_DIR/.fonts"]="$HOME/.fonts"
-    ["$BACKUP_DIR/.local/share/fonts"]="$HOME/.local/share/fonts"
-    ["$BACKUP_DIR/.themes"]="$HOME/.themes"
-    ["$BACKUP_DIR/.icons"]="$HOME/.icons"
+    ["$BACKUP_DIR/.local/bin"]="$TARGET_HOME/.local/bin"
+    ["$BACKUP_DIR/.local/share/applications"]="$TARGET_HOME/.local/share/applications"
+    ["$BACKUP_DIR/.local/share/icons"]="$TARGET_HOME/.local/share/icons"
+    ["$BACKUP_DIR/.local/share/themes"]="$TARGET_HOME/.local/share/themes"
+    ["$BACKUP_DIR/.local/share/Thunar"]="$TARGET_HOME/.local/share/Thunar"
+    ["$BACKUP_DIR/.local/share/xfce4"]="$TARGET_HOME/.local/share/xfce4"
+    ["$BACKUP_DIR/.fonts"]="$TARGET_HOME/.fonts"
+    ["$BACKUP_DIR/.local/share/fonts"]="$TARGET_HOME/.local/share/fonts"
+    ["$BACKUP_DIR/.themes"]="$TARGET_HOME/.themes"
+    ["$BACKUP_DIR/.icons"]="$TARGET_HOME/.icons"
 )
 
 for src in "${!dirs[@]}"; do
@@ -194,7 +253,7 @@ for src in "${!dirs[@]}"; do
         echo "📁 Restaurando $dest"
         mkdir -p "$dest"
         rsync -a --delete "$src/" "$dest/"
-        sudo chown -R "$USER":"$USER" "$dest" || true
+        sudo chown -R "$TARGET_USER":"$TARGET_USER" "$dest" || true
     fi
 done
 
@@ -206,20 +265,20 @@ done
 # Restaurar .ssh e .gnupg (arquivos sensíveis)
 if [ -d "$BACKUP_DIR/.ssh" ]; then
     echo "🔐 Restaurando ~/.ssh"
-    mkdir -p "$HOME/.ssh"
-    rsync -a "$BACKUP_DIR/.ssh/" "$HOME/.ssh/"
-    chmod 700 "$HOME/.ssh"
-    chmod 600 "$HOME/.ssh"/* 2>/dev/null || true
-    sudo chown -R "$USER":"$USER" "$HOME/.ssh"
+    mkdir -p "$TARGET_HOME/.ssh"
+    rsync -a "$BACKUP_DIR/.ssh/" "$TARGET_HOME/.ssh/"
+    chmod 700 "$TARGET_HOME/.ssh"
+    chmod 600 "$TARGET_HOME/.ssh"/* 2>/dev/null || true
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.ssh"
 fi
 
 if [ -d "$BACKUP_DIR/.gnupg" ]; then
     echo "🔐 Restaurando ~/.gnupg"
-    mkdir -p "$HOME/.gnupg"
-    rsync -a "$BACKUP_DIR/.gnupg/" "$HOME/.gnupg/"
-    chmod 700 "$HOME/.gnupg"
-    chmod 600 "$HOME/.gnupg"/* 2>/dev/null || true
-    sudo chown -R "$USER":"$USER" "$HOME/.gnupg"
+    mkdir -p "$TARGET_HOME/.gnupg"
+    rsync -a "$BACKUP_DIR/.gnupg/" "$TARGET_HOME/.gnupg/"
+    chmod 700 "$TARGET_HOME/.gnupg"
+    chmod 600 "$TARGET_HOME/.gnupg"/* 2>/dev/null || true
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.gnupg"
 fi
 
 # ============================================================================
@@ -512,9 +571,9 @@ fi
 # Útil para montagens automáticas no bspwmrc (ex.: compartilhamentos CIFS)
 
 echo "🔧 Configurando permissões sudo para montagem sem senha..."
-echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/mount" | sudo tee /etc/sudoers.d/mount-livre >/dev/null
+echo "$TARGET_USER ALL=(ALL) NOPASSWD: /usr/bin/mount" | sudo tee /etc/sudoers.d/mount-livre >/dev/null
 sudo chmod 0440 /etc/sudoers.d/mount-livre
-echo "✅ Permissão configurada: $USER pode executar 'sudo mount' sem senha"
+echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
 echo "ℹ️  Útil para montagens automáticas no bspwmrc (ex.: CIFS do servidor da empresa)"
 
 # ============================================================================

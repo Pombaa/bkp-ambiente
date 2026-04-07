@@ -40,9 +40,13 @@ cd ~/bkp-ambiente
 ./backup-completo.sh
 ```
 
+Importante:
+- Execute com o seu usuário normal.
+- Não rode com `sudo` nem como `root`, ou o backup pode ir para a home errada.
+
 **Resultado:**
-- Cria arquivo: `ambiente-completo-YYYYMMDD-HHMMSS.tar.gz`
-- Cria pasta: `~/backup-ambiente` com todos os arquivos
+- Cria arquivo: `~/bkp-ambiente/ambiente-completo-YYYYMMDD-HHMMSS.tar.gz`
+- Cria pasta: `~/bkp-ambiente/backup-ambiente` com todos os arquivos
 - **100% seguro** para restaurar em qualquer máquina!
 
 ---
@@ -64,6 +68,12 @@ sudo pacman -S base-devel git xorg bspwm sxhkd
 cd ~/bkp-ambiente
 ./restaurar-ambiente.sh
 ```
+
+Importante:
+- Execute com o seu usuário normal.
+- Não rode com `sudo` nem como `root`, ou a restauração pode ir para `/root`.
+
+O script procura primeiro em `~/bkp-ambiente/` e também aceita backups antigos que tenham ficado soltos em `~/`.
 
 **O script vai:**
 1. ✅ Extrair todos os arquivos
@@ -150,7 +160,7 @@ sudo pacman -S xf86-video-intel  # ou nvidia, amd conforme sua GPU
 **Solução:**
 ```bash
 # Veja a lista completa
-cat ~/backup-ambiente/pkglist-all.txt
+cat ~/bkp-ambiente/backup-ambiente/pkglist-all.txt
 
 # Instale manualmente os que falharam
 yay -S nome-do-pacote

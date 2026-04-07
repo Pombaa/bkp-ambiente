@@ -20,6 +20,33 @@
 set -euo pipefail  # Para na primeira falha, variáveis não definidas causam erro
 umask 077          # Arquivos criados serão privados (somente dono)
 
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+        if [[ -z "$REAL_HOME" ]]; then
+            echo "❌ Não foi possível identificar a home do usuário $SUDO_USER." >&2
+            exit 1
+        fi
+
+        echo "⚠️  Script iniciado com sudo. Reexecutando como $SUDO_USER para usar a home correta..."
+        exec sudo -H -u "$SUDO_USER" env HOME="$REAL_HOME" USER="$SUDO_USER" bash "$0" "$@"
+    fi
+
+    echo "❌ Não execute este script como root." >&2
+    echo "❌ Rode com o usuário dono do ambiente; o script pedirá sudo só quando precisar." >&2
+    exit 1
+fi
+
+TARGET_USER="${USER:-$(id -un)}"
+TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+
+if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
+    echo "❌ Não foi possível resolver a home do usuário $TARGET_USER." >&2
+    exit 1
+fi
+
+BACKUP_ROOT_DIR="$TARGET_HOME/bkp-ambiente"
+
 # Verificação de dependências necessárias
 if ! command -v rsync >/dev/null 2>&1; then
     echo "❌ É necessário instalar o rsync para executar este script." >&2
@@ -29,9 +56,9 @@ fi
 # Variáveis de configuração do backup
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_NAME="backup-ambiente-$TIMESTAMP"
-STAGING_DIR="$HOME/$BACKUP_NAME"
-BACKUP_LATEST="$HOME/backup-ambiente"
-ARCHIVE_PATH="$HOME/ambiente-completo-$TIMESTAMP.tar.gz"
+STAGING_DIR="$BACKUP_ROOT_DIR/$BACKUP_NAME"
+BACKUP_LATEST="$BACKUP_ROOT_DIR/backup-ambiente"
+ARCHIVE_PATH="$BACKUP_ROOT_DIR/ambiente-completo-$TIMESTAMP.tar.gz"
 
 # ============================================================================
 # FUNÇÕES AUXILIARES
@@ -151,9 +178,14 @@ copy_system_path() {
 # ============================================================================
 
 log "🚀 Iniciando backup completo do ambiente ($BACKUP_NAME)"
+log "👤 Usuário de destino: $TARGET_USER"
+log "🏠 Home de destino: $TARGET_HOME"
+log "📂 Pasta de backup: $BACKUP_ROOT_DIR"
+
+mkdir -p "$BACKUP_ROOT_DIR"
 
 # Verificar espaço disponível (mínimo recomendado: 5GB)
-AVAILABLE_SPACE=$(df -BG "$HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
+AVAILABLE_SPACE=$(df -BG "$TARGET_HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
 if [[ $AVAILABLE_SPACE -lt 5 ]]; then
     log "⚠️  AVISO: Espaço em disco baixo (${AVAILABLE_SPACE}GB disponível)"
     log "⚠️  É recomendado ter pelo menos 5GB livres para o backup"
@@ -278,16 +310,16 @@ CONFIG_FILES=(
 # ============================================================================
 
 for dir in "${CONFIG_DIRS[@]}"; do
-    copy_path "$HOME/$dir" "$dir"
+    copy_path "$TARGET_HOME/$dir" "$dir"
 done
 
 for file in "${CONFIG_FILES[@]}"; do
-    copy_path "$HOME/$file" "$file"
+    copy_path "$TARGET_HOME/$file" "$file"
 done
 
 # Copiar chaves SSH e GPG (arquivos sensíveis)
-copy_path "$HOME/.ssh" ".ssh"
-copy_path "$HOME/.gnupg" ".gnupg"
+copy_path "$TARGET_HOME/.ssh" ".ssh"
+copy_path "$TARGET_HOME/.gnupg" ".gnupg"
 
 # ============================================================================
 # EXPORTAR CONFIGURAÇÕES DO SISTEMA
@@ -374,7 +406,7 @@ for path in "${SYSTEM_PATHS[@]}"; do
 done
 
 if [[ -d "$STAGING_DIR/etc" ]]; then
-    sudo chown -R "$USER":"$USER" "$STAGING_DIR/etc"
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$STAGING_DIR/etc"
 fi
 
 # ============================================================================
@@ -398,7 +430,8 @@ fi
 
 cat > "$STAGING_DIR/backup-metadata.txt" <<EOF
 host: ${HOSTNAME_VALUE}
-user: $USER
+user: $TARGET_USER
+home: $TARGET_HOME
 timestamp: $TIMESTAMP
 archive: $(basename "$ARCHIVE_PATH")
 EOF
@@ -408,7 +441,7 @@ EOF
 # ============================================================================
 
 log "🗂️  Gerando arquivo comprimido $ARCHIVE_PATH"
-tar -czf "$ARCHIVE_PATH" -C "$HOME" "$BACKUP_NAME"
+tar -czf "$ARCHIVE_PATH" -C "$TARGET_HOME" "$BACKUP_NAME"
 
 # ============================================================================
 # VERIFICAÇÃO DE SEGURANÇA

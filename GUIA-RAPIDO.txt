@@ -61,9 +61,13 @@
 
     ./backup-completo.sh
 
+   IMPORTANTE:
+   • Execute com o seu usuário normal
+   • Não rode com sudo ou como root
+
     Resultado:
-    • Cria: ambiente-completo-YYYYMMDD-HHMMSS.tar.gz
-    • Pasta: ~/backup-ambiente (última versão)
+   • Cria: ~/bkp-ambiente/ambiente-completo-YYYYMMDD-HHMMSS.tar.gz
+   • Pasta: ~/bkp-ambiente/backup-ambiente (última versão)
 
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -71,7 +75,7 @@
 └─────────────────────────────────────────────────────────────────────────┘
 
     # Via pendrive, scp, rsync, etc.
-    scp ambiente-completo-*.tar.gz usuario@nova-maquina:~/
+   scp ~/bkp-ambiente/ambiente-completo-*.tar.gz usuario@nova-maquina:~/bkp-ambiente/
 
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -80,6 +84,10 @@
 
     # Na máquina nova (após instalar Arch Linux base)
     ./restaurar-ambiente.sh
+
+   IMPORTANTE:
+   • Execute com o seu usuário normal
+   • Não rode com sudo ou como root
 
     # Reiniciar
     sudo reboot
@@ -162,7 +170,7 @@
 
 ❓ "Alguns pacotes falharam na instalação"
    → NORMAL! Alguns podem ter sido removidos dos repositórios
-   → Veja: cat ~/backup-ambiente/pkglist-all.txt
+   → Veja: cat ~/bkp-ambiente/backup-ambiente/pkglist-all.txt
    → Instale manualmente: yay -S nome-do-pacote
 
 ❓ "Como atualizar cache de fontes?"
@@ -192,7 +200,7 @@
    → 0 2 * * 0 ~/bkp-ambiente/backup-completo.sh
 
 4. Verifique o backup antes de restaurar
-   → tar -tzf ambiente-completo-*.tar.gz | less
+   → tar -tzf ~/bkp-ambiente/ambiente-completo-*.tar.gz | less
 
 5. Leia o README.md
    → Documentação completa com todos os detalhes
