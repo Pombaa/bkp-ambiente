@@ -99,6 +99,7 @@
 📁 CONFIGURAÇÕES COMPLETAS:
    ✓ ~/.config/                 → Todas as configs de apps
    ✓ ~/.local/bin/              → Scripts personalizados
+   ✓ ~/.local/scripts-automacao/ → Scripts de automação
    ✓ ~/.local/share/            → Dados de aplicativos
 
 📝 DOTFILES:

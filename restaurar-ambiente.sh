@@ -251,6 +251,7 @@ done
 # 3. Restaurar diretórios pessoais
 declare -A dirs=(
     ["$BACKUP_DIR/.local/bin"]="$TARGET_HOME/.local/bin"
+    ["$BACKUP_DIR/.local/scripts-automacao"]="$TARGET_HOME/.local/scripts-automacao"
     ["$BACKUP_DIR/.local/share/applications"]="$TARGET_HOME/.local/share/applications"
     ["$BACKUP_DIR/.local/share/icons"]="$TARGET_HOME/.local/share/icons"
     ["$BACKUP_DIR/.local/share/themes"]="$TARGET_HOME/.local/share/themes"
@@ -272,6 +273,13 @@ for src in "${!dirs[@]}"; do
         sudo chown -R "$TARGET_USER":"$TARGET_USER" "$dest" || true
     fi
 done
+
+AUTOMATION_SCRIPTS_DIR="$TARGET_HOME/.local/scripts-automacao"
+if [ -d "$AUTOMATION_SCRIPTS_DIR" ]; then
+    echo "🔧 Ajustando permissões dos scripts de automação"
+    find "$AUTOMATION_SCRIPTS_DIR" -type f \( -name '*.sh' -o -name '*.expect' \) -exec chmod +x {} +
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$AUTOMATION_SCRIPTS_DIR" || true
+fi
 
 # ============================================================================
 # 4. RESTAURAR CHAVES SSH E GPG

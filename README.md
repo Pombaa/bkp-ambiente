@@ -100,7 +100,7 @@ sudo reboot
 | **~/.config/** | Todas configurações de aplicativos |
 | **Dotfiles** | .bashrc, .zshrc, .gitconfig, etc. |
 | **Temas** | ~/.themes, ~/.icons, ~/.fonts |
-| **Scripts** | ~/.local/bin |
+| **Scripts** | ~/.local/bin, ~/.local/scripts-automacao |
 | **Pacotes** | Lista completa (pacman + AUR) |
 | **Flatpak** | Lista de aplicativos instalados |
 | **Systemd** | Lista de serviços habilitados |

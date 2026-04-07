@@ -289,6 +289,7 @@ CONFIG_DIRS=(
     ".config/picom-animations.conf"
     ".config/mimeapps.list"
     ".local/bin"
+    ".local/scripts-automacao"
     ".local/share/applications"
     ".local/share/icons"
     ".local/share/themes"
