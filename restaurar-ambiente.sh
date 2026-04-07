@@ -106,6 +106,19 @@ find_latest_archive() {
     fi
 }
 
+fix_sensitive_permissions() {
+    local target_dir="$1"
+
+    if [[ ! -d "$target_dir" ]]; then
+        return
+    fi
+
+    chmod 700 "$target_dir"
+    find "$target_dir" -type d -exec chmod 700 {} +
+    find "$target_dir" -type f -exec chmod 600 {} +
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$target_dir"
+}
+
 # Se a pasta backup-ambiente não existir, criar
 mkdir -p "$BACKUP_ROOT_DIR"
 mkdir -p "$BACKUP_DIR"
@@ -119,20 +132,22 @@ if [ -z "$(ls -A "$BACKUP_DIR")" ]; then
         mv "$TARGET_HOME/backup-ambiente" "$BACKUP_DIR"
     fi
 
-    TARFILE=$(find_latest_archive)
-    if [ -f "$TARFILE" ]; then
-        echo "📦 Extraindo backup $TARFILE para $BACKUP_DIR"
-        tar -xzf "$TARFILE" -C "$BACKUP_ROOT_DIR"
-        # O tar cria a pasta backup-ambiente-YYYYMMDD, mover para backup-ambiente fixo
-        EXTRACTED_DIR=$(basename "$TARFILE" .tar.gz | sed 's/ambiente-completo/backup-ambiente/')
-        if [ "$EXTRACTED_DIR" != "backup-ambiente" ]; then
-            rm -rf "$BACKUP_DIR"
-            mv "$BACKUP_ROOT_DIR/$EXTRACTED_DIR" "$BACKUP_DIR"
+    if [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
+        TARFILE=$(find_latest_archive)
+        if [ -f "$TARFILE" ]; then
+            echo "📦 Extraindo backup $TARFILE para $BACKUP_DIR"
+            tar -xzf "$TARFILE" -C "$BACKUP_ROOT_DIR"
+            # O tar cria a pasta backup-ambiente-YYYYMMDD, mover para backup-ambiente fixo
+            EXTRACTED_DIR=$(basename "$TARFILE" .tar.gz | sed 's/ambiente-completo/backup-ambiente/')
+            if [ "$EXTRACTED_DIR" != "backup-ambiente" ]; then
+                rm -rf "$BACKUP_DIR"
+                mv "$BACKUP_ROOT_DIR/$EXTRACTED_DIR" "$BACKUP_DIR"
+            fi
+        else
+            echo "❌ Nenhum arquivo de backup encontrado para restaurar!"
+            echo "❌ Locais verificados: $BACKUP_ROOT_DIR e $TARGET_HOME"
+            exit 1
         fi
-    else
-        echo "❌ Nenhum arquivo de backup encontrado para restaurar!"
-        echo "❌ Locais verificados: $BACKUP_ROOT_DIR e $TARGET_HOME"
-        exit 1
     fi
 fi
 
@@ -267,18 +282,14 @@ if [ -d "$BACKUP_DIR/.ssh" ]; then
     echo "🔐 Restaurando ~/.ssh"
     mkdir -p "$TARGET_HOME/.ssh"
     rsync -a "$BACKUP_DIR/.ssh/" "$TARGET_HOME/.ssh/"
-    chmod 700 "$TARGET_HOME/.ssh"
-    chmod 600 "$TARGET_HOME/.ssh"/* 2>/dev/null || true
-    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.ssh"
+    fix_sensitive_permissions "$TARGET_HOME/.ssh"
 fi
 
 if [ -d "$BACKUP_DIR/.gnupg" ]; then
     echo "🔐 Restaurando ~/.gnupg"
     mkdir -p "$TARGET_HOME/.gnupg"
     rsync -a "$BACKUP_DIR/.gnupg/" "$TARGET_HOME/.gnupg/"
-    chmod 700 "$TARGET_HOME/.gnupg"
-    chmod 600 "$TARGET_HOME/.gnupg"/* 2>/dev/null || true
-    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.gnupg"
+    fix_sensitive_permissions "$TARGET_HOME/.gnupg"
 fi
 
 # ============================================================================
@@ -291,7 +302,11 @@ fi
 # Reinstalar pacotes do Pacman
 if [ -f "$BACKUP_DIR/pkglist-pacman.txt" ]; then
     echo "📦 Reinstalando pacotes do Pacman..."
-    sudo pacman -Syu --needed --noconfirm $(< "$BACKUP_DIR/pkglist-pacman.txt") || echo "⚠️ Alguns pacotes do Pacman podem ter falhado."
+    if [ -s "$BACKUP_DIR/pkglist-pacman.txt" ]; then
+        sudo pacman -Syu --needed --noconfirm - < "$BACKUP_DIR/pkglist-pacman.txt" || echo "⚠️ Alguns pacotes do Pacman podem ter falhado."
+    else
+        echo "⚠️ Lista de pacotes do Pacman está vazia. Pulando reinstalação."
+    fi
 else
     echo "⚠️ Arquivo pkglist-pacman.txt não encontrado. Pulando reinstalação de pacotes do Pacman."
 fi
@@ -571,9 +586,24 @@ fi
 # Útil para montagens automáticas no bspwmrc (ex.: compartilhamentos CIFS)
 
 echo "🔧 Configurando permissões sudo para montagem sem senha..."
-echo "$TARGET_USER ALL=(ALL) NOPASSWD: /usr/bin/mount" | sudo tee /etc/sudoers.d/mount-livre >/dev/null
-sudo chmod 0440 /etc/sudoers.d/mount-livre
-echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
+SUDOERS_FILE="/etc/sudoers.d/mount-livre"
+SUDOERS_CONTENT="$TARGET_USER ALL=(ALL) NOPASSWD: /usr/bin/mount"
+
+if command -v visudo >/dev/null 2>&1; then
+    TMP_SUDOERS=$(mktemp)
+    printf '%s\n' "$SUDOERS_CONTENT" > "$TMP_SUDOERS"
+    if sudo visudo -cf "$TMP_SUDOERS" >/dev/null 2>&1; then
+        sudo install -m 0440 "$TMP_SUDOERS" "$SUDOERS_FILE"
+        echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
+    else
+        echo "⚠️ Conteúdo inválido de sudoers detectado. Permissão não foi aplicada."
+    fi
+    rm -f "$TMP_SUDOERS"
+else
+    echo "$SUDOERS_CONTENT" | sudo tee "$SUDOERS_FILE" >/dev/null
+    sudo chmod 0440 "$SUDOERS_FILE"
+    echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
+fi
 echo "ℹ️  Útil para montagens automáticas no bspwmrc (ex.: CIFS do servidor da empresa)"
 
 # ============================================================================
