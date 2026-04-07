@@ -21,6 +21,12 @@ set -e          # Para no primeiro erro
 set -u          # Variáveis não definidas causam erro
 set -o pipefail # Erros em pipes são detectados
 
+# ============================================================================
+# VALIDAÇÃO DE PRIVILÉGIOS E HOME DO USUÁRIO
+# ============================================================================
+# Se o script foi executado com sudo, re-executa como o usuário real
+# para garantir que $HOME e $USER apontam para o usuário correto
+
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
         REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
@@ -46,8 +52,7 @@ if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
     exit 1
 fi
 
-BACKUP_ROOT_DIR="$TARGET_HOME/bkp-ambiente"
-BACKUP_DIR="$BACKUP_ROOT_DIR/backup-ambiente"
+BACKUP_DIR="$TARGET_HOME/backup-ambiente"
 
 # ============================================================================
 # AVISOS INICIAIS E VERIFICAÇÕES
@@ -59,7 +64,7 @@ echo "════════════════════════�
 echo ""
 echo "👤 Usuário de destino: $TARGET_USER"
 echo "🏠 Home de destino: $TARGET_HOME"
-echo "📂 Pasta de backup: $BACKUP_ROOT_DIR"
+echo "📂 Pasta de backup: $BACKUP_DIR"
 echo ""
 echo "⚠️  ATENÇÃO: Este script restaura APENAS configurações de usuário"
 echo "⚠️  e arquivos SEGUROS do sistema."
@@ -76,13 +81,8 @@ echo ""
 sleep 2
 
 if ! command -v rsync >/dev/null 2>&1; then
-    echo "📦 rsync não encontrado. Instalando via pacman..."
-    sudo pacman -S --needed --noconfirm rsync
-
-    if ! command -v rsync >/dev/null 2>&1; then
-        echo "❌ Não foi possível instalar o rsync automaticamente." >&2
-        exit 1
-    fi
+    echo "❌ O utilitário rsync é necessário para este script." >&2
+    exit 1
 fi
 
 # ============================================================================
@@ -94,7 +94,7 @@ fi
 find_latest_archive() {
     local latest_file=""
 
-    latest_file=$(ls -t "$BACKUP_ROOT_DIR"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
+    latest_file=$(ls -t "$BACKUP_DIR"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
     if [ -n "$latest_file" ]; then
         printf '%s\n' "$latest_file"
         return 0
@@ -106,21 +106,7 @@ find_latest_archive() {
     fi
 }
 
-fix_sensitive_permissions() {
-    local target_dir="$1"
-
-    if [[ ! -d "$target_dir" ]]; then
-        return
-    fi
-
-    chmod 700 "$target_dir"
-    find "$target_dir" -type d -exec chmod 700 {} +
-    find "$target_dir" -type f -exec chmod 600 {} +
-    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$target_dir"
-}
-
 # Se a pasta backup-ambiente não existir, criar
-mkdir -p "$BACKUP_ROOT_DIR"
 mkdir -p "$BACKUP_DIR"
 
 # Se a pasta estiver vazia, procurar o arquivo .tar.gz e extrair
@@ -132,22 +118,20 @@ if [ -z "$(ls -A "$BACKUP_DIR")" ]; then
         mv "$TARGET_HOME/backup-ambiente" "$BACKUP_DIR"
     fi
 
-    if [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
-        TARFILE=$(find_latest_archive)
-        if [ -f "$TARFILE" ]; then
-            echo "📦 Extraindo backup $TARFILE para $BACKUP_DIR"
-            tar -xzf "$TARFILE" -C "$BACKUP_ROOT_DIR"
-            # O tar cria a pasta backup-ambiente-YYYYMMDD, mover para backup-ambiente fixo
-            EXTRACTED_DIR=$(basename "$TARFILE" .tar.gz | sed 's/ambiente-completo/backup-ambiente/')
-            if [ "$EXTRACTED_DIR" != "backup-ambiente" ]; then
-                rm -rf "$BACKUP_DIR"
-                mv "$BACKUP_ROOT_DIR/$EXTRACTED_DIR" "$BACKUP_DIR"
-            fi
-        else
-            echo "❌ Nenhum arquivo de backup encontrado para restaurar!"
-            echo "❌ Locais verificados: $BACKUP_ROOT_DIR e $TARGET_HOME"
-            exit 1
+    TARFILE=$(find_latest_archive)
+    if [ -f "$TARFILE" ]; then
+        echo "📦 Extraindo backup $TARFILE para $BACKUP_DIR"
+        tar -xzf "$TARFILE" -C "$TARGET_HOME"
+        # O tar cria a pasta backup-ambiente-YYYYMMDD, mover para backup-ambiente fixo
+        EXTRACTED_DIR=$(basename "$TARFILE" .tar.gz | sed 's/ambiente-completo/backup-ambiente/')
+        if [ "$EXTRACTED_DIR" != "backup-ambiente" ]; then
+            rm -rf "$BACKUP_DIR"
+            mv "$TARGET_HOME/$EXTRACTED_DIR" "$BACKUP_DIR"
         fi
+    else
+        echo "❌ Nenhum arquivo de backup encontrado para restaurar!"
+        echo "❌ Locais verificados: $BACKUP_DIR e $TARGET_HOME"
+        exit 1
     fi
 fi
 
@@ -159,6 +143,7 @@ fi
 
 echo "📁 Restaurando configurações importantes do ~/.config..."
 CONFIG_DIRS=(
+    ".assets"
     "bspwm"
     "sxhkd"
     "polybar"
@@ -260,6 +245,7 @@ declare -A dirs=(
     ["$BACKUP_DIR/.local/share/fonts"]="$TARGET_HOME/.local/share/fonts"
     ["$BACKUP_DIR/.themes"]="$TARGET_HOME/.themes"
     ["$BACKUP_DIR/.icons"]="$TARGET_HOME/.icons"
+    ["$BACKUP_DIR/.screenlayout"]="$TARGET_HOME/.screenlayout"
 )
 
 for src in "${!dirs[@]}"; do
@@ -282,14 +268,18 @@ if [ -d "$BACKUP_DIR/.ssh" ]; then
     echo "🔐 Restaurando ~/.ssh"
     mkdir -p "$TARGET_HOME/.ssh"
     rsync -a "$BACKUP_DIR/.ssh/" "$TARGET_HOME/.ssh/"
-    fix_sensitive_permissions "$TARGET_HOME/.ssh"
+    chmod 700 "$TARGET_HOME/.ssh"
+    chmod 600 "$TARGET_HOME/.ssh"/* 2>/dev/null || true
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.ssh"
 fi
 
 if [ -d "$BACKUP_DIR/.gnupg" ]; then
     echo "🔐 Restaurando ~/.gnupg"
     mkdir -p "$TARGET_HOME/.gnupg"
     rsync -a "$BACKUP_DIR/.gnupg/" "$TARGET_HOME/.gnupg/"
-    fix_sensitive_permissions "$TARGET_HOME/.gnupg"
+    chmod 700 "$TARGET_HOME/.gnupg"
+    chmod 600 "$TARGET_HOME/.gnupg"/* 2>/dev/null || true
+    sudo chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.gnupg"
 fi
 
 # ============================================================================
@@ -302,11 +292,7 @@ fi
 # Reinstalar pacotes do Pacman
 if [ -f "$BACKUP_DIR/pkglist-pacman.txt" ]; then
     echo "📦 Reinstalando pacotes do Pacman..."
-    if [ -s "$BACKUP_DIR/pkglist-pacman.txt" ]; then
-        sudo pacman -Syu --needed --noconfirm - < "$BACKUP_DIR/pkglist-pacman.txt" || echo "⚠️ Alguns pacotes do Pacman podem ter falhado."
-    else
-        echo "⚠️ Lista de pacotes do Pacman está vazia. Pulando reinstalação."
-    fi
+    sudo pacman -Syu --needed --noconfirm $(< "$BACKUP_DIR/pkglist-pacman.txt") || echo "⚠️ Alguns pacotes do Pacman podem ter falhado."
 else
     echo "⚠️ Arquivo pkglist-pacman.txt não encontrado. Pulando reinstalação de pacotes do Pacman."
 fi
@@ -586,24 +572,9 @@ fi
 # Útil para montagens automáticas no bspwmrc (ex.: compartilhamentos CIFS)
 
 echo "🔧 Configurando permissões sudo para montagem sem senha..."
-SUDOERS_FILE="/etc/sudoers.d/mount-livre"
-SUDOERS_CONTENT="$TARGET_USER ALL=(ALL) NOPASSWD: /usr/bin/mount"
-
-if command -v visudo >/dev/null 2>&1; then
-    TMP_SUDOERS=$(mktemp)
-    printf '%s\n' "$SUDOERS_CONTENT" > "$TMP_SUDOERS"
-    if sudo visudo -cf "$TMP_SUDOERS" >/dev/null 2>&1; then
-        sudo install -m 0440 "$TMP_SUDOERS" "$SUDOERS_FILE"
-        echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
-    else
-        echo "⚠️ Conteúdo inválido de sudoers detectado. Permissão não foi aplicada."
-    fi
-    rm -f "$TMP_SUDOERS"
-else
-    echo "$SUDOERS_CONTENT" | sudo tee "$SUDOERS_FILE" >/dev/null
-    sudo chmod 0440 "$SUDOERS_FILE"
-    echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
-fi
+echo "$TARGET_USER ALL=(ALL) NOPASSWD: /usr/bin/mount" | sudo tee /etc/sudoers.d/mount-livre >/dev/null
+sudo chmod 0440 /etc/sudoers.d/mount-livre
+echo "✅ Permissão configurada: $TARGET_USER pode executar 'sudo mount' sem senha"
 echo "ℹ️  Útil para montagens automáticas no bspwmrc (ex.: CIFS do servidor da empresa)"
 
 # ============================================================================
@@ -641,4 +612,95 @@ echo "   3. A montagem automática do servidor (CIFS) já está configurada no b
 echo "   4. Ajuste manualmente qualquer configuração específica"
 echo ""
 echo "🚀 Ambiente restaurado e pronto para uso!"
+
+# ============================================================================
+# 13. VALIDAÇÃO PÓS-RESTAURAÇÃO (PREVINE TELA PRETA)
+# ============================================================================
+# Verifica se os arquivos essenciais do bspwm/sxhkd estão funcionais
+# antes de o usuário reiniciar o sistema.
+
 echo "═══════════════════════════════════════════════════════════════"
+echo "🔍 Validação pós-restauração..."
+echo "═══════════════════════════════════════════════════════════════"
+
+VALIDATION_ERRORS=0
+
+# 1. bspwmrc deve existir e ser executável
+BSPWMRC="$HOME/.config/bspwm/bspwmrc"
+if [[ ! -f "$BSPWMRC" ]]; then
+    echo "❌ CRÍTICO: $BSPWMRC não existe! bspwm não vai funcionar."
+    VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+elif [[ ! -x "$BSPWMRC" ]]; then
+    echo "⚠️  $BSPWMRC não é executável. Corrigindo..."
+    chmod +x "$BSPWMRC"
+    echo "   ✅ Permissão de execução adicionada."
+fi
+
+# 2. bspwmrc não deve ter erros de sintaxe
+if [[ -f "$BSPWMRC" ]]; then
+    SHEBANG=$(head -1 "$BSPWMRC")
+    if [[ "$SHEBANG" == *"bash"* ]]; then
+        if ! bash -n "$BSPWMRC" 2>/dev/null; then
+            echo "❌ CRÍTICO: $BSPWMRC tem erros de sintaxe bash!"
+            bash -n "$BSPWMRC" 2>&1 | head -5
+            VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+        else
+            echo "   ✅ bspwmrc: sintaxe OK"
+        fi
+    elif [[ "$SHEBANG" == *"/bin/sh"* ]]; then
+        echo "   ⚠️  bspwmrc usa #!/bin/sh — verifique se não usa bash-ismos (arrays, source, (( )))"
+    fi
+fi
+
+# 3. sxhkdrc deve existir
+SXHKDRC="$HOME/.config/sxhkd/sxhkdrc"
+if [[ ! -f "$SXHKDRC" ]]; then
+    echo "❌ CRÍTICO: $SXHKDRC não existe! Atalhos de teclado não vão funcionar."
+    VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+else
+    # Verificar se não é o skeleton padrão (que usa urxvt)
+    if grep -q "urxvt" "$SXHKDRC" 2>/dev/null; then
+        echo "   ⚠️  sxhkdrc parece ser o skeleton padrão (usa urxvt). Verifique se é o seu customizado."
+    else
+        echo "   ✅ sxhkdrc: presente e customizado"
+    fi
+fi
+
+# 4. Verificar se bspwmrc depende de arquivos que não existem
+if [[ -f "$BSPWMRC" ]]; then
+    # Checa se o bspwmrc faz source/cat de arquivos sem guards
+    UNSAFE_SOURCES=$(grep -n '^\s*source\s' "$BSPWMRC" | grep -v 'if\s*\[\[' || true)
+    UNSAFE_CATS=$(grep -n '^\s*.*\$(cat\s' "$BSPWMRC" | grep -v 'if\s*\[\[' || true)
+    if [[ -n "$UNSAFE_SOURCES" || -n "$UNSAFE_CATS" ]]; then
+        echo "   ⚠️  bspwmrc pode falhar se dependências externas não existirem:"
+        [[ -n "$UNSAFE_SOURCES" ]] && echo "       source sem guard: $UNSAFE_SOURCES"
+        [[ -n "$UNSAFE_CATS" ]] && echo "       cat sem guard: $UNSAFE_CATS"
+    fi
+fi
+
+# 5. Verificar dependências essenciais instaladas
+for cmd in bspc sxhkd; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "❌ CRÍTICO: '$cmd' não está instalado!"
+        VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+    fi
+done
+
+for cmd in polybar dunst picom feh kitty rofi; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "   ⚠️  '$cmd' não está instalado (não-essencial, mas recomendado)"
+    fi
+done
+
+echo ""
+if [[ $VALIDATION_ERRORS -gt 0 ]]; then
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "🚨 ATENÇÃO: $VALIDATION_ERRORS erro(s) crítico(s) encontrado(s)!"
+    echo "   Corrija antes de reiniciar para evitar tela preta."
+    echo "═══════════════════════════════════════════════════════════════"
+else
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "✅ Validação OK! Ambiente pronto."
+    echo "🚀 Reinicie o sistema para aplicar todas as mudanças."
+    echo "═══════════════════════════════════════════════════════════════"
+fi

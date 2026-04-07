@@ -20,6 +20,12 @@
 set -euo pipefail  # Para na primeira falha, variáveis não definidas causam erro
 umask 077          # Arquivos criados serão privados (somente dono)
 
+# ============================================================================
+# VALIDAÇÃO DE PRIVILÉGIOS E HOME DO USUÁRIO
+# ============================================================================
+# Se o script foi executado com sudo, re-executa como o usuário real
+# para garantir que $HOME e $USER apontam para o usuário correto
+
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
         REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
@@ -77,78 +83,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-run_user_rsync() {
-    local src="$1"
-    local dest="$2"
-
-    rsync -a \
-        --exclude='Cache/' \
-        --exclude='cache/' \
-        --exclude='CachedData/' \
-        --exclude='GPUCache/' \
-        --exclude='Code Cache/' \
-        --exclude='logs/' \
-        --exclude='*.log' \
-        --exclude='*.tmp' \
-        --exclude='.cache/' \
-        --exclude='node_modules/' \
-        --exclude='.git/' \
-        --exclude='*-cache/' \
-        --exclude='*.swp' \
-        --exclude='*.swo' \
-        --exclude='.npm/' \
-        --exclude='.yarn/' \
-        --exclude='.cargo/registry/' \
-        --exclude='.cargo/git/' \
-        --exclude='__pycache__/' \
-        --exclude='*.pyc' \
-        --exclude='.venv/' \
-        --exclude='venv/' \
-        --exclude='Session Storage/' \
-        --exclude='Local Storage/' \
-        --exclude='IndexedDB/' \
-        --exclude='Service Worker/' \
-        --exclude='discord/' \
-        --exclude='google-chrome/' \
-        --exclude='chromium/' \
-        --exclude='BraveSoftware/' \
-        --exclude='Code/' \
-        --exclude='VSCodium/' \
-        --exclude='spotify/' \
-        --exclude='Slack/' \
-        --exclude='obsidian/' \
-        --exclude='transmission/' \
-        --exclude='Postman/' \
-        --exclude='Ferdium/' \
-        --exclude='TabNine/' \
-        --exclude='apidog/' \
-        --exclude='beekeeper-studio/' \
-        --exclude='YouTube Music/' \
-        "$src/" "$dest/"
-}
-
-fix_sensitive_dir_permissions() {
-    local src="$1"
-    local rel="$2"
-    local has_permission_issue
-    local has_owner_issue
-
-    if [[ ! -d "$src" ]]; then
-        return
-    fi
-
-    has_permission_issue=$(find "$src" -mindepth 1 \( ! -readable -o \( -type d ! -executable \) \) -print -quit 2>/dev/null || true)
-    has_owner_issue=$(find "$src" -mindepth 1 ! -user "$TARGET_USER" -print -quit 2>/dev/null || true)
-
-    if [[ -n "$has_permission_issue" || -n "$has_owner_issue" ]]; then
-        log "🔧 Corrigindo permissões/proprietário em $rel automaticamente..."
-        sudo chown -R "$TARGET_USER:$TARGET_USER" "$src"
-        sudo find "$src" -type d -exec chmod 700 {} +
-        sudo find "$src" -type f -exec chmod 600 {} +
-        log "✅ Permissões de $rel corrigidas"
-    fi
-}
-
 # Função para copiar arquivos/diretórios do usuário com exclusões inteligentes
 # Parâmetros:
 #   $1 - Caminho origem
@@ -171,19 +105,50 @@ copy_path() {
         log "📁 Copiando $rel"
         mkdir -p "$dest"
         # Excluir caches, logs e arquivos temporários para reduzir tamanho do backup
-        local rsync_status=0
-        run_user_rsync "$src" "$dest" || rsync_status=$?
-
-        if [[ $rsync_status -ne 0 ]]; then
-            if [[ $rsync_status -eq 23 && ( "$rel" == ".gnupg" || "$rel" == ".ssh" ) ]]; then
-                log "⚠️ Erro de permissão em $rel. Tentando corrigir automaticamente e repetir..."
-                fix_sensitive_dir_permissions "$src" "$rel"
-                run_user_rsync "$src" "$dest"
-            else
-                log "❌ Falha ao copiar $rel (rsync code $rsync_status)"
-                return "$rsync_status"
-            fi
-        fi
+        rsync -a \
+            --exclude='Cache/' \
+            --exclude='cache/' \
+            --exclude='CachedData/' \
+            --exclude='GPUCache/' \
+            --exclude='Code Cache/' \
+            --exclude='logs/' \
+            --exclude='*.log' \
+            --exclude='*.tmp' \
+            --exclude='.cache/' \
+            --exclude='node_modules/' \
+            --exclude='.git/' \
+            --exclude='*-cache/' \
+            --exclude='*.swp' \
+            --exclude='*.swo' \
+            --exclude='.npm/' \
+            --exclude='.yarn/' \
+            --exclude='.cargo/registry/' \
+            --exclude='.cargo/git/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='.venv/' \
+            --exclude='venv/' \
+            --exclude='Session Storage/' \
+            --exclude='Local Storage/' \
+            --exclude='IndexedDB/' \
+            --exclude='Service Worker/' \
+            --exclude='discord/' \
+            --exclude='google-chrome/' \
+            --exclude='chromium/' \
+            --exclude='BraveSoftware/' \
+            --exclude='Code/' \
+            --exclude='VSCodium/' \
+            --exclude='spotify/' \
+            --exclude='Slack/' \
+            --exclude='obsidian/' \
+            --exclude='transmission/' \
+            --exclude='Postman/' \
+            --exclude='Ferdium/' \
+            --exclude='TabNine/' \
+            --exclude='apidog/' \
+            --exclude='beekeeper-studio/' \
+            --exclude='YouTube Music/' \
+            "$src/" "$dest/"
     else
         log "📄 Copiando $rel"
         mkdir -p "$(dirname "$dest")"
@@ -249,6 +214,7 @@ mkdir -p "$STAGING_DIR"
 # Inclui: WM (bspwm), barras (polybar), launchers (rofi), editores, apps GUI, etc.
 # EXCLUI: Apps com login (Discord, Chrome, Spotify, VSCode definidos nos --exclude)
 CONFIG_DIRS=(
+    ".config/.assets"
     ".config/bspwm"
     ".config/sxhkd"
     ".config/polybar"
@@ -311,6 +277,7 @@ CONFIG_DIRS=(
     ".fonts"
     ".themes"
     ".icons"
+    ".screenlayout"
 )
 
 # ============================================================================
@@ -359,8 +326,6 @@ for file in "${CONFIG_FILES[@]}"; do
 done
 
 # Copiar chaves SSH e GPG (arquivos sensíveis)
-fix_sensitive_dir_permissions "$TARGET_HOME/.ssh" ".ssh"
-fix_sensitive_dir_permissions "$TARGET_HOME/.gnupg" ".gnupg"
 copy_path "$TARGET_HOME/.ssh" ".ssh"
 copy_path "$TARGET_HOME/.gnupg" ".gnupg"
 
@@ -510,6 +475,56 @@ fi
 # ============================================================================
 # FINALIZAR E EXIBIR RESUMO
 # ============================================================================
+
+# ============================================================================
+# VALIDAÇÃO DE DEPENDÊNCIAS DO BSPWMRC
+# ============================================================================
+# Verifica se o bspwmrc referencia arquivos que estão sendo backupeados.
+# Previne o cenário de restaurar um bspwmrc que depende de arquivos ausentes.
+
+BSPWMRC_FILE="$STAGING_DIR/.config/bspwm/bspwmrc"
+if [[ -f "$BSPWMRC_FILE" ]]; then
+    log "🔍 Validando dependências do bspwmrc..."
+    BSPWM_OK=true
+
+    # Verificar shebang: se usa bash features, deve ter #!/bin/bash
+    SHEBANG=$(head -1 "$BSPWMRC_FILE")
+    if grep -qE '\(\(|\[\[|source |declare ' "$BSPWMRC_FILE" 2>/dev/null; then
+        if [[ "$SHEBANG" != *"bash"* ]]; then
+            log "⚠️  bspwmrc usa sintaxe bash mas tem shebang '$SHEBANG' — pode falhar!"
+            BSPWM_OK=false
+        fi
+    fi
+
+    # Verificar se .config/.assets foi backupeado (tema)
+    if grep -q '\.assets' "$BSPWMRC_FILE" 2>/dev/null; then
+        if [[ ! -d "$STAGING_DIR/.config/.assets" ]]; then
+            log "⚠️  bspwmrc referencia .config/.assets mas este NÃO foi backupeado!"
+            BSPWM_OK=false
+        fi
+    fi
+
+    # Verificar se .screenlayout foi backupeado
+    if grep -q '\.screenlayout' "$BSPWMRC_FILE" 2>/dev/null; then
+        if [[ ! -d "$STAGING_DIR/.screenlayout" ]]; then
+            log "⚠️  bspwmrc referencia .screenlayout mas este NÃO foi backupeado!"
+            log "   Certifique-se de ter guards (if [[ -x ... ]]) no bspwmrc."
+        fi
+    fi
+
+    # Verificar sintaxe bash
+    if [[ "$SHEBANG" == *"bash"* ]]; then
+        if ! bash -n "$BSPWMRC_FILE" 2>/dev/null; then
+            log "❌ bspwmrc tem erros de sintaxe!"
+            bash -n "$BSPWMRC_FILE" 2>&1 | head -5 | while read -r line; do log "   $line"; done
+            BSPWM_OK=false
+        fi
+    fi
+
+    if [[ "$BSPWM_OK" == true ]]; then
+        log "✅ bspwmrc validado — dependências OK"
+    fi
+fi
 
 log "🔄 Atualizando diretório base $BACKUP_LATEST"
 rm -rf "$BACKUP_LATEST"
