@@ -71,7 +71,7 @@ if ! command -v rsync >/dev/null 2>&1; then
 fi
 
 # Variáveis de configuração do backup
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+TIMESTAMP="$(date +%Y-%m-%d)"
 BACKUP_NAME="backup-ambiente-$TIMESTAMP"
 STAGING_DIR="$BACKUP_ROOT_DIR/$BACKUP_NAME"
 BACKUP_LATEST="$BACKUP_ROOT_DIR/backup-ambiente"
@@ -596,4 +596,20 @@ log ""
 if [[ -f "$ARCHIVE_PATH" ]]; then
     BACKUP_SIZE=$(du -h "$ARCHIVE_PATH" | cut -f1)
     log "📊 Tamanho do backup: $BACKUP_SIZE"
+fi
+
+# ============================================================================
+# REMOVER BACKUPS COM MAIS DE 7 DIAS
+# ============================================================================
+log "🗑️  Verificando backups antigos (mais de 7 dias)..."
+OLD_BACKUPS=$(find "$BACKUP_ROOT_DIR" -maxdepth 1 -name "ambiente-completo-*.tar.gz" -mtime +7 2>/dev/null)
+
+if [[ -n "$OLD_BACKUPS" ]]; then
+    while IFS= read -r f; do
+        log "   Removendo: $(basename "$f")"
+        rm -f "$f"
+    done <<< "$OLD_BACKUPS"
+    log "✅ Backups antigos removidos."
+else
+    log "ℹ️  Nenhum backup com mais de 7 dias encontrado."
 fi
