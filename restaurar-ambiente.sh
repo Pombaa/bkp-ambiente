@@ -67,6 +67,10 @@ if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
     exit 1
 fi
 
+# Diretório onde este script está (normalmente o repositório clonado, ex.: ~/bkp-ambiente).
+# Usado para localizar o arquivo .tar.gz que você copiou para perto do script.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BACKUP_DIR="$TARGET_HOME/backup-ambiente"
 
 # ============================================================================
@@ -95,10 +99,51 @@ echo "════════════════════════�
 echo ""
 sleep 2
 
-if ! command -v rsync >/dev/null 2>&1; then
-    echo "❌ O utilitário rsync é necessário para este script." >&2
+# ============================================================================
+# DEPENDÊNCIAS ESSENCIAIS DO SCRIPT
+# ============================================================================
+# Logo após formatar o PC, utilitários como rsync e git podem não existir.
+# O rsync é usado já nas primeiras etapas (restauração de configs) e o git
+# é necessário para clonar/compilar o yay. Por isso garantimos a instalação
+# deles ANTES de qualquer outra coisa, em vez de simplesmente abortar.
+
+ensure_pkg() {
+    # Instala um pacote via pacman somente se o comando ainda não existir.
+    #   $1 = comando esperado
+    #   $2 = nome do pacote (opcional, default = $1)
+    #   $3 = "opcional" para apenas avisar em caso de falha (default: obrigatório/aborta)
+    local cmd="$1"
+    local pkg="${2:-$1}"
+    local mode="${3:-obrigatorio}"
+
+    if command -v "$cmd" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "📥 '$cmd' não encontrado. Instalando o pacote '$pkg'..."
+    # Tenta instalar direto; se a base de dados estiver desatualizada
+    # (comum logo após formatar), sincroniza os repositórios e tenta de novo.
+    # O '|| true' evita que o 'set -e' aborte antes da verificação final.
+    sudo pacman -S --needed --noconfirm "$pkg" || \
+        { echo "🔄 Base de dados do pacman desatualizada. Sincronizando e tentando novamente..."; \
+          sudo pacman -Sy --needed --noconfirm "$pkg" || true; }
+
+    if command -v "$cmd" >/dev/null 2>&1; then
+        echo "✅ '$cmd' instalado com sucesso."
+        return 0
+    fi
+
+    if [[ "$mode" == "opcional" ]]; then
+        echo "⚠️  Não foi possível instalar '$pkg'. A etapa relacionada será pulada."
+        return 1
+    fi
+    echo "❌ Não foi possível instalar '$pkg'. Abortando." >&2
     exit 1
-fi
+}
+
+echo "🔧 Verificando dependências essenciais (rsync, git)..."
+ensure_pkg rsync
+ensure_pkg git
 
 # ============================================================================
 # EXTRAIR BACKUP SE NECESSÁRIO
@@ -108,17 +153,20 @@ fi
 
 find_latest_archive() {
     local latest_file=""
+    local search_dir=""
 
-    latest_file=$(ls -t "$BACKUP_DIR"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
-    if [ -n "$latest_file" ]; then
-        printf '%s\n' "$latest_file"
-        return 0
-    fi
-
-    latest_file=$(ls -t "$TARGET_HOME"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
-    if [ -n "$latest_file" ]; then
-        printf '%s\n' "$latest_file"
-    fi
+    # Procura o .tar.gz mais recente nos locais prováveis, em ordem de prioridade:
+    #   1. BACKUP_DIR        (~/backup-ambiente, usado em restaurações anteriores)
+    #   2. SCRIPT_DIR        (pasta do script/repositório, ex.: ~/bkp-ambiente)
+    #   3. ~/bkp-ambiente    (pasta padrão criada pelo backup-completo.sh)
+    #   4. TARGET_HOME       (home do usuário, caso o arquivo esteja solto em ~)
+    for search_dir in "$BACKUP_DIR" "$SCRIPT_DIR" "$TARGET_HOME/bkp-ambiente" "$TARGET_HOME"; do
+        latest_file=$(ls -t "$search_dir"/ambiente-completo-*.tar.gz 2>/dev/null | head -n 1 || true)
+        if [ -n "$latest_file" ]; then
+            printf '%s\n' "$latest_file"
+            return 0
+        fi
+    done
 }
 
 # Se a pasta backup-ambiente não existir, criar
@@ -342,7 +390,9 @@ sudo pacman -S --needed --noconfirm base-devel git
 # yay é um helper AUR que facilita instalação de pacotes do AUR
 if ! command -v yay &>/dev/null; then
     echo "📥 yay não encontrado! Instalando automaticamente..."
-    sudo pacman -S --needed --noconfirm base-devel git
+    # base-devel/git já foram garantidos acima; aqui só clonamos e compilamos.
+    # Remove sobras de tentativas anteriores para o git clone não falhar
+    rm -rf /tmp/yay
     git clone https://aur.archlinux.org/yay.git /tmp/yay
     (cd /tmp/yay && makepkg -si --noconfirm)
 fi
@@ -450,15 +500,13 @@ unset GIT_ASKPASS || true
 
 # Reinstalar aplicativos Flatpak
 if [ -f "$BACKUP_DIR/flatpak-apps.txt" ]; then
-    if command -v flatpak >/dev/null 2>&1; then
+    if ensure_pkg flatpak flatpak opcional; then
         echo "📦 Reinstalando aplicativos Flatpak..."
         while IFS= read -r app; do
             [[ -z "$app" ]] && continue
             [[ "$app" =~ ^# ]] && continue
             flatpak install --noninteractive --or-update "$app" || echo "⚠️ Falha ao instalar Flatpak $app"
         done < "$BACKUP_DIR/flatpak-apps.txt"
-    else
-        echo "⚠️ Flatpak não encontrado. Instale o Flatpak e execute novamente esta etapa manualmente."
     fi
 fi
 
@@ -497,15 +545,13 @@ fi
 
 # 7. Restaurar configurações do dconf
 if [ -f "$BACKUP_DIR/dconf-settings.ini" ]; then
-    if command -v dconf >/dev/null 2>&1; then
+    if ensure_pkg dconf dconf opcional; then
         echo "🧠 Restaurando configurações (dconf)..."
         if dconf load / < "$BACKUP_DIR/dconf-settings.ini"; then
             echo "✅ dconf restaurado do backup"
         else
             echo "⚠️ Falha ao restaurar o dconf."
         fi
-    else
-        echo "⚠️ dconf não encontrado. Instale-o para restaurar configurações gráficas."
     fi
 fi
 

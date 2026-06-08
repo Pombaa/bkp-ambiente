@@ -64,11 +64,30 @@ fi
 
 BACKUP_ROOT_DIR="$TARGET_HOME/bkp-ambiente"
 
-# Verificação de dependências necessárias
-if ! command -v rsync >/dev/null 2>&1; then
-    echo "❌ É necessário instalar o rsync para executar este script." >&2
-    exit 1
-fi
+# Verificação/instalação de dependências necessárias
+ensure_pkg() {
+    # Instala um pacote via pacman somente se o comando ainda não existir.
+    #   $1 = comando esperado | $2 = nome do pacote (opcional, default = $1)
+    local cmd="$1"
+    local pkg="${2:-$1}"
+
+    if command -v "$cmd" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "📥 '$cmd' não encontrado. Instalando o pacote '$pkg'..."
+    sudo pacman -S --needed --noconfirm "$pkg" || \
+        { echo "🔄 Sincronizando base de dados do pacman e tentando novamente..."; \
+          sudo pacman -Sy --needed --noconfirm "$pkg" || true; }
+
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "❌ Não foi possível instalar '$pkg'. Abortando." >&2
+        exit 1
+    fi
+    echo "✅ '$cmd' instalado com sucesso."
+}
+
+ensure_pkg rsync
 
 # Variáveis de configuração do backup
 TIMESTAMP="$(date +%Y-%m-%d)"
@@ -286,7 +305,6 @@ CONFIG_DIRS=(
     ".config/wireplumber"
     ".config/gwenviewrc"
     ".config/QtProject.conf"
-    ".config/picom-animations.conf"
     ".config/mimeapps.list"
     ".local/bin"
     ".local/scripts-automacao"
